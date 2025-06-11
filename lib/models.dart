@@ -142,8 +142,8 @@ class ClientModel {
   final String id;
   final String clientName;
   final String username;
-  final String primaryPhone;
-  final String? secondaryPhone;
+  final String clientPhone;        // Standardized field name
+  final String? secondPhone;       // Standardized field name
   final PhoneCountry phoneCountry;
   final VisaType visaType;
   final String? agentName;
@@ -157,13 +157,14 @@ class ClientModel {
   final String createdBy;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final int version;               // New version field for concurrency control
 
   ClientModel({
     required this.id,
     required this.clientName,
     required this.username,
-    required this.primaryPhone,
-    this.secondaryPhone,
+    required this.clientPhone,
+    this.secondPhone,
     required this.phoneCountry,
     required this.visaType,
     this.agentName,
@@ -177,11 +178,12 @@ class ClientModel {
     required this.createdBy,
     required this.createdAt,
     required this.updatedAt,
+    this.version = 1,               // Default version starts at 1
   });
 
-  String get fullPrimaryPhone => '${phoneCountry.countryCode}$primaryPhone';
-  String get fullSecondaryPhone => secondaryPhone != null 
-      ? '${phoneCountry.countryCode}$secondaryPhone'
+  String get fullPrimaryPhone => '${phoneCountry.countryCode}$clientPhone';
+  String get fullSecondaryPhone => secondPhone != null
+      ? '${phoneCountry.countryCode}$secondPhone'
       : '';
 
   String get statusDisplayName => status.displayName;
@@ -196,8 +198,8 @@ class ClientModel {
       'id': id,
       'clientName': clientName,
       'username': username,
-      'primaryPhone': primaryPhone,
-      'secondaryPhone': secondaryPhone,
+      'clientPhone': clientPhone,           // Updated field name
+      'secondPhone': secondPhone,           // Updated field name
       'phoneCountry': phoneCountry.toString().split('.').last,
       'visaType': visaType.toString().split('.').last,
       'agentName': agentName,
@@ -211,6 +213,7 @@ class ClientModel {
       'createdBy': createdBy,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'updatedAt': updatedAt.millisecondsSinceEpoch,
+      'version': version,                   // Include version in serialization
     };
   }
 
@@ -219,14 +222,14 @@ class ClientModel {
       id: map['id'] ?? '',
       clientName: map['clientName'] ?? '',
       username: map['username'] ?? '',
-      primaryPhone: map['primaryPhone'] ?? map['clientPhone'] ?? '',
-      secondaryPhone: map['secondaryPhone'] ?? map['secondPhone'],
+      clientPhone: map['clientPhone'] ?? '',        // Updated field name
+      secondPhone: map['secondPhone'],               // Updated field name
       phoneCountry: PhoneCountry.values.firstWhere(
-        (e) => e.toString().split('.').last == map['phoneCountry'],
+            (e) => e.toString().split('.').last == map['phoneCountry'],
         orElse: () => PhoneCountry.saudi,
       ),
       visaType: VisaType.values.firstWhere(
-        (e) => e.toString().split('.').last == map['visaType'],
+            (e) => e.toString().split('.').last == map['visaType'],
         orElse: () => VisaType.umrah,
       ),
       agentName: map['agentName'],
@@ -235,7 +238,7 @@ class ClientModel {
       notes: map['notes'] ?? '',
       imageUrls: List<String>.from(map['imageUrls'] ?? []),
       status: ClientStatus.values.firstWhere(
-        (e) => e.toString().split('.').last == map['status'],
+            (e) => e.toString().split('.').last == map['status'],
         orElse: () => ClientStatus.green,
       ),
       daysRemaining: map['daysRemaining'] ?? 0,
@@ -243,6 +246,7 @@ class ClientModel {
       createdBy: map['createdBy'] ?? '',
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt']),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(map['updatedAt']),
+      version: map['version'] ?? 1,                 // Handle existing data without version
     );
   }
 
@@ -250,8 +254,8 @@ class ClientModel {
     String? id,
     String? clientName,
     String? username,
-    String? primaryPhone,
-    String? secondaryPhone,
+    String? clientPhone,
+    String? secondPhone,
     PhoneCountry? phoneCountry,
     VisaType? visaType,
     String? agentName,
@@ -263,13 +267,14 @@ class ClientModel {
     int? daysRemaining,
     bool? hasExited,
     DateTime? updatedAt,
+    int? version,                               // Allow version updates
   }) {
     return ClientModel(
       id: id ?? this.id,
       clientName: clientName ?? this.clientName,
       username: username ?? this.username,
-      primaryPhone: primaryPhone ?? this.primaryPhone,
-      secondaryPhone: secondaryPhone ?? this.secondaryPhone,
+      clientPhone: clientPhone ?? this.clientPhone,
+      secondPhone: secondPhone ?? this.secondPhone,
       phoneCountry: phoneCountry ?? this.phoneCountry,
       visaType: visaType ?? this.visaType,
       agentName: agentName ?? this.agentName,
@@ -283,6 +288,7 @@ class ClientModel {
       createdBy: this.createdBy,
       createdAt: this.createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
+      version: version ?? this.version,           // Maintain current version unless explicitly updated
     );
   }
 }

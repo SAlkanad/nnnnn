@@ -143,7 +143,7 @@ class ValidationUtils {
     return null;
   }
 
-  static String? validatePrimaryPhone(String? value, PhoneCountry country) {
+  static String? validateClientPhone(String? value, PhoneCountry country) {
     if (value == null || value.trim().isEmpty) {
       return 'رقم الهاتف الأساسي مطلوب';
     }
@@ -163,7 +163,7 @@ class ValidationUtils {
     return null;
   }
 
-  static String? validateSecondaryPhone(String? value, PhoneCountry country) {
+  static String? validateSecondPhone(String? value, PhoneCountry country) {
     if (value == null || value.trim().isEmpty) {
       return null;
     }
@@ -282,6 +282,38 @@ class AppTheme {
         contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
     );
+  }
+}
+
+abstract class BaseFormScreen extends StatefulWidget {
+  const BaseFormScreen({Key? key}) : super(key: key);
+}
+
+abstract class BaseFormScreenState<T extends BaseFormScreen> extends State<T> {
+  final List<TextEditingController> _controllers = [];
+  bool _isLoading = false;
+
+  void registerController(TextEditingController controller) {
+    _controllers.add(controller);
+  }
+
+  void setLoading(bool loading) {
+    if (mounted) {
+      setState(() {
+        _isLoading = loading;
+      });
+    }
+  }
+
+  bool get isLoading => _isLoading;
+
+  @override
+  void dispose() {
+    for (final controller in _controllers) {
+      controller.dispose();
+    }
+    _controllers.clear();
+    super.dispose();
   }
 }
 
@@ -1235,7 +1267,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
             ],
           ),
           SizedBox(height: 16),
-          
+
           if (widget.users.isNotEmpty) ...[
             Text('تصفية حسب المستخدم:', style: TextStyle(fontWeight: FontWeight.w600)),
             SizedBox(height: 8),
@@ -1348,7 +1380,7 @@ class NotificationDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final unreadCount = notifications.where((n) => !n.isRead).length;
-    
+
     return PopupMenuButton<String>(
       icon: Stack(
         children: [
@@ -1390,7 +1422,7 @@ class NotificationDropdown extends StatelessWidget {
         }
 
         final recentNotifications = notifications.take(5).toList();
-        
+
         return [
           ...recentNotifications.map((notification) => PopupMenuItem<String>(
             value: notification.id,

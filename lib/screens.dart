@@ -505,7 +505,7 @@ class UserDashboard extends StatelessWidget {
   }
 }
 
-class ClientFormScreen extends StatefulWidget {
+class ClientFormScreen extends BaseFormScreen {
   final ClientModel? client;
 
   const ClientFormScreen({Key? key, this.client}) : super(key: key);
@@ -514,24 +514,38 @@ class ClientFormScreen extends StatefulWidget {
   State<ClientFormScreen> createState() => _ClientFormScreenState();
 }
 
-class _ClientFormScreenState extends State<ClientFormScreen> {
+class _ClientFormScreenState extends BaseFormScreenState<ClientFormScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _clientNameController = TextEditingController();
-  final _primaryPhoneController = TextEditingController();
-  final _secondaryPhoneController = TextEditingController();
-  final _agentNameController = TextEditingController();
-  final _agentPhoneController = TextEditingController();
-  final _notesController = TextEditingController();
+  late final TextEditingController _clientNameController;
+  late final TextEditingController _clientPhoneController;
+  late final TextEditingController _secondPhoneController;
+  late final TextEditingController _agentNameController;
+  late final TextEditingController _agentPhoneController;
+  late final TextEditingController _notesController;
 
   PhoneCountry _phoneCountry = PhoneCountry.saudi;
   VisaType _visaType = VisaType.umrah;
   DateTime _entryDate = DateTime.now();
   List<File> _selectedImages = [];
-  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
+
+    _clientNameController = TextEditingController();
+    _clientPhoneController = TextEditingController();
+    _secondPhoneController = TextEditingController();
+    _agentNameController = TextEditingController();
+    _agentPhoneController = TextEditingController();
+    _notesController = TextEditingController();
+
+    registerController(_clientNameController);
+    registerController(_clientPhoneController);
+    registerController(_secondPhoneController);
+    registerController(_agentNameController);
+    registerController(_agentPhoneController);
+    registerController(_notesController);
+
     if (widget.client != null) {
       _populateFields();
     }
@@ -544,8 +558,8 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
   void _populateFields() {
     final client = widget.client!;
     _clientNameController.text = client.clientName;
-    _primaryPhoneController.text = client.clientPhone;
-    _secondaryPhoneController.text = client.secondPhone ?? '';
+    _clientPhoneController.text = client.clientPhone;
+    _secondPhoneController.text = client.secondPhone ?? '';
     _phoneCountry = client.phoneCountry;
     _visaType = client.visaType;
     _agentNameController.text = client.agentName ?? '';
@@ -562,7 +576,7 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
         actions: [
           IconButton(
             icon: Icon(Icons.save),
-            onPressed: _isLoading ? null : _handleSave,
+            onPressed: isLoading ? null : _handleSave,
           ),
         ],
       ),
@@ -606,20 +620,20 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
               SizedBox(height: 16),
 
               CustomTextField(
-                controller: _primaryPhoneController,
+                controller: _clientPhoneController,
                 label: 'رقم العميل الأساسي *',
                 icon: Icons.phone,
                 keyboardType: TextInputType.phone,
-                validator: (value) => ValidationUtils.validatePrimaryPhone(value, _phoneCountry),
+                validator: (value) => ValidationUtils.validateClientPhone(value, _phoneCountry),
               ),
               SizedBox(height: 16),
 
               CustomTextField(
-                controller: _secondaryPhoneController,
+                controller: _secondPhoneController,
                 label: 'رقم إضافي (اختياري)',
                 icon: Icons.phone_android,
                 keyboardType: TextInputType.phone,
-                validator: (value) => ValidationUtils.validateSecondaryPhone(value, _phoneCountry),
+                validator: (value) => ValidationUtils.validateSecondPhone(value, _phoneCountry),
               ),
               SizedBox(height: 16),
 
@@ -679,12 +693,12 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
               SizedBox(height: 24),
 
               ElevatedButton(
-                onPressed: _isLoading ? null : _handleSave,
+                onPressed: isLoading ? null : _handleSave,
                 style: ElevatedButton.styleFrom(
                   padding: EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
-                child: _isLoading
+                child: isLoading
                     ? CircularProgressIndicator(color: Colors.white)
                     : Text(
                   widget.client == null ? 'حفظ العميل' : 'تحديث العميل',
@@ -792,7 +806,7 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
 
   Future<void> _handleSave() async {
     if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true);
+      setLoading(true);
 
       try {
         final authController = Provider.of<AuthController>(context, listen: false);
@@ -808,8 +822,8 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
         final client = ClientModel(
           id: widget.client?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
           clientName: _clientNameController.text,
-          clientPhone: _primaryPhoneController.text,
-          secondPhone: _secondaryPhoneController.text.isEmpty ? null : _secondaryPhoneController.text,
+          clientPhone: _clientPhoneController.text,
+          secondPhone: _secondPhoneController.text.isEmpty ? null : _secondPhoneController.text,
           phoneCountry: _phoneCountry,
           visaType: _visaType,
           agentName: _agentNameController.text.isEmpty ? null : _agentNameController.text,
@@ -835,25 +849,30 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
           await clientController.updateClient(client, _selectedImages);
         }
 
-        Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تم حفظ العميل بنجاح')),
-        );
+        if (mounted) {
+          Navigator.pop(context, true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('تم حفظ العميل بنجاح')),
+          );
+        }
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ في حفظ العميل: ${e.toString()}')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('خطأ في حفظ العميل: ${e.toString()}')),
+          );
+        }
       } finally {
-        setState(() => _isLoading = false);
+        setLoading(false);
       }
     }
   }
+}
 
   @override
   void dispose() {
     _clientNameController.dispose();
-    _primaryPhoneController.dispose();
-    _secondaryPhoneController.dispose();
+    _clientPhoneController.dispose();
+    _secondPhoneController.dispose();
     _agentNameController.dispose();
     _agentPhoneController.dispose();
     _notesController.dispose();

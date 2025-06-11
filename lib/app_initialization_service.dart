@@ -324,7 +324,7 @@ class NotificationService {
           .replaceAll('{daysRemaining}', client.daysRemaining.toString());
       
       await CommunicationService.sendWhatsAppMessage(
-        client.fullPrimaryPhone,
+        client.fullClientPhone,
         formattedMessage,
       );
     } catch (e) {

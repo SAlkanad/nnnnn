@@ -245,12 +245,24 @@ class DatabaseService {
 
       final updatedClient = client.copyWith(
         imageUrls: [...client.imageUrls, ...imageUrls],
+        updatedAt: DateTime.now(),
+        version: client.version + 1,              // Increment version on update
       );
 
-      await _firestore
-          .collection(FirebaseConstants.clientsCollection)
-          .doc(client.id)
-          .set(updatedClient.toMap());
+      final docRef = _firestore.collection(FirebaseConstants.clientsCollection).doc(client.id);
+
+      await _firestore.runTransaction((transaction) async {
+        final doc = await transaction.get(docRef);
+
+        if (doc.exists) {
+          final currentVersion = doc.data()?['version'] ?? 1;
+          if (currentVersion != client.version) {
+            throw Exception('البيانات تم تعديلها من مستخدم آخر. يرجى إعادة التحميل والمحاولة مرة أخرى.');
+          }
+        }
+
+        transaction.set(docRef, updatedClient.toMap());
+      });
 
       await clearCache();
     } catch (e) {
@@ -820,6 +832,24 @@ class ImageService {
 }
 
 class WhatsAppService {
+  // Constants for phone number validation
+  static const Map<PhoneCountry, PhoneNumberRules> _phoneRules = {
+    PhoneCountry.saudi: PhoneNumberRules(
+      countryCode: '966',
+      validPrefixes: ['5'],
+      minLength: 9,
+      maxLength: 9,
+      displayName: 'السعودية',
+    ),
+    PhoneCountry.yemen: PhoneNumberRules(
+      countryCode: '967',
+      validPrefixes: ['7'],
+      minLength: 9,
+      maxLength: 9,
+      displayName: 'اليمن',
+    ),
+  };
+
   static Future<void> sendClientMessage({
     required String phoneNumber,
     required PhoneCountry country,
@@ -827,26 +857,22 @@ class WhatsAppService {
     required String clientName,
   }) async {
     try {
-      if (phoneNumber.isEmpty) {
-        throw Exception('رقم الهاتف فارغ');
-      }
+      // Validate input parameters
+      _validateInputs(phoneNumber: phoneNumber, message: message);
 
+      // Format and validate phone number
       final formattedPhone = _formatPhoneNumber(phoneNumber, country);
+
+      // Format message with client name
       final formattedMessage = MessageTemplates.formatMessage(message, {
         'clientName': clientName,
       });
 
-      final encodedMessage = Uri.encodeComponent(formattedMessage);
-      final whatsappUrl = 'https://wa.me/$formattedPhone?text=$encodedMessage';
+      // Launch WhatsApp
+      await _launchWhatsApp(formattedPhone, formattedMessage);
 
-      final uri = Uri.parse(whatsappUrl);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        throw Exception('Could not launch WhatsApp');
-      }
     } catch (e) {
-      throw Exception('خطأ في فتح الواتساب: ${e.toString()}');
+      throw _createWhatsAppException(e);
     }
   }
 
@@ -854,23 +880,27 @@ class WhatsAppService {
     required String phoneNumber,
     required String message,
     required String userName,
+    PhoneCountry country = PhoneCountry.saudi, // Default country for user messages
   }) async {
     try {
+      // Validate input parameters
+      _validateInputs(phoneNumber: phoneNumber, message: message);
+
+      // Format phone number with country code if needed
+      final formattedPhone = phoneNumber.startsWith('+') || phoneNumber.startsWith('966') || phoneNumber.startsWith('967')
+          ? _formatInternationalNumber(phoneNumber)
+          : _formatPhoneNumber(phoneNumber, country);
+
+      // Format message with user name
       final formattedMessage = MessageTemplates.formatMessage(message, {
         'userName': userName,
       });
 
-      final encodedMessage = Uri.encodeComponent(formattedMessage);
-      final whatsappUrl = 'https://wa.me/$phoneNumber?text=$encodedMessage';
+      // Launch WhatsApp
+      await _launchWhatsApp(formattedPhone, formattedMessage);
 
-      final uri = Uri.parse(whatsappUrl);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        throw Exception('Could not launch WhatsApp');
-      }
     } catch (e) {
-      throw Exception('خطأ في فتح الواتساب: ${e.toString()}');
+      throw _createWhatsAppException(e);
     }
   }
 
@@ -879,46 +909,215 @@ class WhatsAppService {
     required PhoneCountry country,
   }) async {
     try {
+      // Validate phone number
       if (phoneNumber.isEmpty) {
-        throw Exception('رقم الهاتف فارغ');
+        throw Exception('رقم الهاتف مطلوب');
       }
 
+      // Format and validate phone number
       final formattedPhone = _formatPhoneNumber(phoneNumber, country);
-      final telUrl = 'tel:+$formattedPhone';
 
+      // Launch phone dialer
+      await _makePhoneCall(formattedPhone);
+
+    } catch (e) {
+      throw _createCallException(e);
+    }
+  }
+
+  /// Validates common input parameters
+  static void _validateInputs({String? phoneNumber, String? message}) {
+    if (phoneNumber != null && phoneNumber.trim().isEmpty) {
+      throw Exception('رقم الهاتف مطلوب');
+    }
+
+    if (message != null && message.trim().isEmpty) {
+      throw Exception('نص الرسالة مطلوب');
+    }
+  }
+
+  /// Formats phone number according to country rules with comprehensive validation
+  static String _formatPhoneNumber(String phone, PhoneCountry country) {
+    if (phone.isEmpty) {
+      throw Exception('رقم الهاتف فارغ');
+    }
+
+    // Get phone rules for the country
+    final rules = _phoneRules[country];
+    if (rules == null) {
+      throw Exception('دولة غير مدعومة');
+    }
+
+    // Remove all non-digit characters
+    String cleaned = phone.replaceAll(RegExp(r'[^\d]'), '');
+
+    if (cleaned.isEmpty) {
+      throw Exception('رقم الهاتف يجب أن يحتوي على أرقام');
+    }
+
+    // Remove country code if present
+    if (cleaned.startsWith(rules.countryCode)) {
+      cleaned = cleaned.substring(rules.countryCode.length);
+    }
+
+    // Remove leading zero if present
+    if (cleaned.startsWith('0')) {
+      cleaned = cleaned.substring(1);
+    }
+
+    // Validate phone number length
+    if (cleaned.length < rules.minLength || cleaned.length > rules.maxLength) {
+      throw Exception(
+          'رقم هاتف ${rules.displayName} يجب أن يكون ${rules.minLength} أرقام'
+      );
+    }
+
+    // Validate phone number prefix
+    final hasValidPrefix = rules.validPrefixes.any((prefix) => cleaned.startsWith(prefix));
+    if (!hasValidPrefix) {
+      final prefixList = rules.validPrefixes.join(' أو ');
+      throw Exception(
+          'رقم هاتف ${rules.displayName} يجب أن يبدأ بـ $prefixList'
+      );
+    }
+
+    // Return formatted international number
+    return '${rules.countryCode}$cleaned';
+  }
+
+  /// Formats international phone numbers that already include country codes
+  static String _formatInternationalNumber(String phoneNumber) {
+    String cleaned = phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
+
+    // Handle numbers that start with + or country codes
+    if (phoneNumber.startsWith('+')) {
+      cleaned = phoneNumber.substring(1).replaceAll(RegExp(r'[^\d]'), '');
+    }
+
+    // Validate that it's a supported country code
+    if (cleaned.startsWith('966') || cleaned.startsWith('967')) {
+      return cleaned;
+    }
+
+    throw Exception('رقم الهاتف الدولي غير مدعوم');
+  }
+
+  /// Launches WhatsApp with formatted phone number and message
+  static Future<void> _launchWhatsApp(String formattedPhone, String message) async {
+    try {
+      final encodedMessage = Uri.encodeComponent(message);
+      final whatsappUrl = 'https://wa.me/$formattedPhone?text=$encodedMessage';
+      final uri = Uri.parse(whatsappUrl);
+
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        throw Exception('تطبيق الواتساب غير مثبت على الجهاز');
+      }
+    } catch (e) {
+      if (e.toString().contains('تطبيق الواتساب')) {
+        rethrow;
+      }
+      throw Exception('فشل في فتح تطبيق الواتساب');
+    }
+  }
+
+  /// Makes a phone call using the device's dialer
+  static Future<void> _makePhoneCall(String formattedPhone) async {
+    try {
+      final telUrl = 'tel:+$formattedPhone';
       final uri = Uri.parse(telUrl);
+
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri);
       } else {
-        throw Exception('Could not make call');
+        throw Exception('لا يمكن الوصول إلى تطبيق الهاتف');
       }
     } catch (e) {
-      throw Exception('خطأ في المكالمة: ${e.toString()}');
+      if (e.toString().contains('لا يمكن الوصول')) {
+        rethrow;
+      }
+      throw Exception('فشل في إجراء المكالمة');
     }
   }
 
-  static String _formatPhoneNumber(String phone, PhoneCountry country) {
-    String cleaned = phone.replaceAll(RegExp(r'[^\d]'), '');
+  /// Creates standardized WhatsApp exception messages
+  static Exception _createWhatsAppException(dynamic error) {
+    final errorMessage = error.toString();
 
-    switch (country) {
-      case PhoneCountry.saudi:
-        if (cleaned.startsWith('966')) {
-          cleaned = cleaned.substring(3);
-        }
-        if (cleaned.startsWith('0')) {
-          cleaned = cleaned.substring(1);
-        }
-        return '966$cleaned';
-      case PhoneCountry.yemen:
-        if (cleaned.startsWith('967')) {
-          cleaned = cleaned.substring(3);
-        }
-        if (cleaned.startsWith('0')) {
-          cleaned = cleaned.substring(1);
-        }
-        return '967$cleaned';
+    if (errorMessage.contains('رقم الهاتف')) {
+      return Exception('خطأ في رقم الهاتف: ${error.toString()}');
+    } else if (errorMessage.contains('تطبيق الواتساب')) {
+      return Exception('خطأ في تطبيق الواتساب: ${error.toString()}');
+    } else {
+      return Exception('خطأ في إرسال رسالة الواتساب: ${error.toString()}');
     }
   }
+
+  /// Creates standardized call exception messages
+  static Exception _createCallException(dynamic error) {
+    final errorMessage = error.toString();
+
+    if (errorMessage.contains('رقم الهاتف')) {
+      return Exception('خطأ في رقم الهاتف: ${error.toString()}');
+    } else if (errorMessage.contains('تطبيق الهاتف')) {
+      return Exception('خطأ في تطبيق الهاتف: ${error.toString()}');
+    } else {
+      return Exception('خطأ في إجراء المكالمة: ${error.toString()}');
+    }
+  }
+
+  /// Validates phone number format for a specific country
+  static bool isValidPhoneNumber(String phoneNumber, PhoneCountry country) {
+    try {
+      _formatPhoneNumber(phoneNumber, country);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Gets formatted display number for UI purposes
+  static String getDisplayPhoneNumber(String phoneNumber, PhoneCountry country) {
+    try {
+      final formatted = _formatPhoneNumber(phoneNumber, country);
+      final rules = _phoneRules[country]!;
+
+      // Format as +XXX XX XXX XXXX for display
+      final countryCode = formatted.substring(0, rules.countryCode.length);
+      final localNumber = formatted.substring(rules.countryCode.length);
+
+      return '+$countryCode ${_formatLocalNumberForDisplay(localNumber)}';
+    } catch (e) {
+      return phoneNumber; // Return original if formatting fails
+    }
+  }
+
+  /// Formats local phone number for display
+  static String _formatLocalNumberForDisplay(String localNumber) {
+    if (localNumber.length == 9) {
+      // Format as XX XXX XXXX
+      return '${localNumber.substring(0, 2)} ${localNumber.substring(2, 5)} ${localNumber.substring(5)}';
+    }
+    return localNumber;
+  }
+}
+
+/// Phone number validation rules for different countries
+class PhoneNumberRules {
+  final String countryCode;
+  final List<String> validPrefixes;
+  final int minLength;
+  final int maxLength;
+  final String displayName;
+
+  const PhoneNumberRules({
+    required this.countryCode,
+    required this.validPrefixes,
+    required this.minLength,
+    required this.maxLength,
+    required this.displayName,
+  });
 }
 
 class NotificationService {
