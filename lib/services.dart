@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:flutter/services.dart';
 import 'models.dart';
 import 'core.dart';
 import 'package:image_picker/image_picker.dart';
@@ -23,57 +24,360 @@ import 'package:path/path.dart' as path;
 
 class BiometricService {
   static final LocalAuthentication _localAuth = LocalAuthentication();
+  static const String _biometricEnabledKey = 'biometric_enabled_';
+  static const String _lastBiometricCheckKey = 'last_biometric_check';
 
+  /// Enhanced biometric availability check for new phones
   static Future<bool> isBiometricAvailable() async {
     try {
-      final isAvailable = await _localAuth.canCheckBiometrics;
-      if (!isAvailable) return false;
+      // Check if device supports biometrics
+      final bool isAvailable = await _localAuth.canCheckBiometrics;
+      if (!isAvailable) {
+        print('❌ Device does not support biometrics');
+        return false;
+      }
 
-      final availableBiometrics = await _localAuth.getAvailableBiometrics();
-      return availableBiometrics.isNotEmpty;
+      // Check if device has enrolled biometrics
+      final bool isDeviceSupported = await _localAuth.isDeviceSupported();
+      if (!isDeviceSupported) {
+        print('❌ Device is not supported for biometrics');
+        return false;
+      }
+
+      // Get available biometric types
+      final List<BiometricType> availableBiometrics = await _localAuth.getAvailableBiometrics();
+      if (availableBiometrics.isEmpty) {
+        print('❌ No biometrics enrolled on device');
+        return false;
+      }
+
+      print('✅ Biometrics available: $availableBiometrics');
+      
+      // Cache the result for better performance
+      await _cacheBiometricAvailability(true);
+      return true;
+
     } catch (e) {
+      print('❌ Error checking biometric availability: $e');
+      await _cacheBiometricAvailability(false);
       return false;
     }
   }
 
+  /// Get available biometric types with enhanced detection
   static Future<List<BiometricType>> getAvailableBiometrics() async {
     try {
-      return await _localAuth.getAvailableBiometrics();
+      final List<BiometricType> availableBiometrics = await _localAuth.getAvailableBiometrics();
+      
+      print('🔍 Available biometrics detected:');
+      for (final biometric in availableBiometrics) {
+        print('  - ${_getBiometricDisplayName(biometric)}');
+      }
+      
+      return availableBiometrics;
     } catch (e) {
+      print('❌ Error getting available biometrics: $e');
       return [];
     }
   }
 
-  static Future<bool> authenticateWithBiometrics() async {
+  /// Enhanced biometric authentication with better error handling
+  static Future<bool> authenticateWithBiometrics({String? reason}) async {
     try {
-      final isAvailable = await isBiometricAvailable();
-      if (!isAvailable) return false;
+      // Check availability first
+      final bool isAvailable = await isBiometricAvailable();
+      if (!isAvailable) {
+        throw BiometricException('البصمة غير متاحة على هذا الجهاز');
+      }
 
-      return await _localAuth.authenticate(
-        localizedReason: 'استخدم بصمتك لتسجيل الدخول',
-        options: AuthenticationOptions(
+      // Get available biometrics to show appropriate message
+      final List<BiometricType> availableBiometrics = await getAvailableBiometrics();
+      final String localizedReason = reason ?? _getLocalizedReason(availableBiometrics);
+
+      print('🔐 Starting biometric authentication...');
+
+      // Perform authentication with enhanced options
+      final bool didAuthenticate = await _localAuth.authenticate(
+        localizedReason: localizedReason,
+        options: const AuthenticationOptions(
           biometricOnly: true,
           stickyAuth: true,
+          sensitiveTransaction: true,
         ),
       );
+
+      if (didAuthenticate) {
+        print('✅ Biometric authentication successful');
+        await _updateLastSuccessfulAuth();
+        return true;
+      } else {
+        print('❌ Biometric authentication failed');
+        return false;
+      }
+
+    } on PlatformException catch (e) {
+      print('❌ Platform exception during authentication: ${e.code} - ${e.message}');
+      throw BiometricException(_handlePlatformException(e));
     } catch (e) {
+      print('❌ Unexpected error during authentication: $e');
+      throw BiometricException('حدث خطأ غير متوقع في المصادقة');
+    }
+  }
+
+  /// Show custom biometric dialog like in the image
+  static Future<bool> showBiometricDialog(BuildContext context, {String? reason}) async {
+    try {
+      final availableBiometrics = await getAvailableBiometrics();
+      if (availableBiometrics.isEmpty) {
+        throw BiometricException('لا توجد بيانات بيومترية مسجلة');
+      }
+
+      // Show custom dialog first
+      final bool? shouldProceed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) => BiometricVerificationDialog(
+          availableBiometrics: availableBiometrics,
+          reason: reason,
+        ),
+      );
+
+      if (shouldProceed == true) {
+        // Proceed with actual biometric authentication
+        return await authenticateWithBiometrics(reason: reason);
+      }
+
+      return false;
+    } catch (e) {
+      print('❌ Error showing biometric dialog: $e');
+      rethrow;
+    }
+  }
+
+  /// Enable biometric for specific user
+  static Future<void> enableBiometric(String userId) async {
+    try {
+      // Verify biometric availability before enabling
+      final bool isAvailable = await isBiometricAvailable();
+      if (!isAvailable) {
+        throw BiometricException('البصمة غير متاحة على هذا الجهاز');
+      }
+
+      // Test authentication before enabling
+      final bool authenticated = await authenticateWithBiometrics(
+        reason: 'تأكيد تفعيل المصادقة ببصمة الإصبع'
+      );
+
+      if (!authenticated) {
+        throw BiometricException('فشل في التحقق من البصمة');
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('$_biometricEnabledKey$userId', true);
+      await prefs.setString('biometric_user_$userId', userId);
+      
+      print('✅ Biometric enabled for user: $userId');
+
+    } catch (e) {
+      print('❌ Error enabling biometric: $e');
+      rethrow;
+    }
+  }
+
+  /// Disable biometric for specific user
+  static Future<void> disableBiometric(String userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('$_biometricEnabledKey$userId', false);
+      await prefs.remove('biometric_user_$userId');
+      
+      print('✅ Biometric disabled for user: $userId');
+    } catch (e) {
+      print('❌ Error disabling biometric: $e');
+      rethrow;
+    }
+  }
+
+  /// Check if biometric is enabled for specific user
+  static Future<bool> isBiometricEnabled(String userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final bool isEnabled = prefs.getBool('$_biometricEnabledKey$userId') ?? false;
+      
+      // Double-check device capability if enabled
+      if (isEnabled) {
+        final bool isAvailable = await isBiometricAvailable();
+        if (!isAvailable) {
+          // Auto-disable if device no longer supports biometric
+          await disableBiometric(userId);
+          return false;
+        }
+      }
+      
+      return isEnabled;
+    } catch (e) {
+      print('❌ Error checking biometric enabled status: $e');
       return false;
     }
   }
 
-  static Future<void> enableBiometric(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('biometric_enabled_$userId', true);
+  /// Get biometric info for display
+  static Future<BiometricInfo> getBiometricInfo() async {
+    try {
+      final bool isAvailable = await isBiometricAvailable();
+      final List<BiometricType> availableTypes = isAvailable 
+          ? await getAvailableBiometrics() 
+          : [];
+
+      return BiometricInfo(
+        isAvailable: isAvailable,
+        isEnabled: false, // Will be set per user
+        availableTypes: availableTypes
+            .map((type) => _getBiometricDisplayName(type))
+            .toList(),
+      );
+    } catch (e) {
+      return BiometricInfo(
+        isAvailable: false,
+        isEnabled: false,
+        availableTypes: [],
+      );
+    }
   }
 
-  static Future<void> disableBiometric(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('biometric_enabled_$userId', false);
+  /// Reset biometric settings (useful for troubleshooting)
+  static Future<void> resetBiometricSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys()
+          .where((key) => key.startsWith(_biometricEnabledKey) || 
+                         key.startsWith('biometric_user_') ||
+                         key == _lastBiometricCheckKey)
+          .toList();
+
+      for (final key in keys) {
+        await prefs.remove(key);
+      }
+
+      print('✅ Biometric settings reset');
+    } catch (e) {
+      print('❌ Error resetting biometric settings: $e');
+    }
   }
 
-  static Future<bool> isBiometricEnabled(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('biometric_enabled_$userId') ?? false;
+  // Private helper methods
+
+  static Future<void> _cacheBiometricAvailability(bool isAvailable) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('biometric_available', isAvailable);
+      await prefs.setInt(_lastBiometricCheckKey, DateTime.now().millisecondsSinceEpoch);
+    } catch (e) {
+      print('Warning: Could not cache biometric availability: $e');
+    }
+  }
+
+  static Future<void> _updateLastSuccessfulAuth() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('last_biometric_auth', DateTime.now().millisecondsSinceEpoch);
+    } catch (e) {
+      print('Warning: Could not update last auth time: $e');
+    }
+  }
+
+  static String _getBiometricDisplayName(BiometricType type) {
+    switch (type) {
+      case BiometricType.face:
+        return 'التعرف على الوجه';
+      case BiometricType.fingerprint:
+        return 'بصمة الإصبع';
+      case BiometricType.iris:
+        return 'مسح القزحية';
+      case BiometricType.strong:
+        return 'مصادقة قوية';
+      case BiometricType.weak:
+        return 'مصادقة ضعيفة';
+      default:
+        return 'مصادقة بيومترية';
+    }
+  }
+
+  static String _getLocalizedReason(List<BiometricType> availableBiometrics) {
+    if (availableBiometrics.contains(BiometricType.face)) {
+      return 'استخدم وجهك للتحقق من هويتك';
+    } else if (availableBiometrics.contains(BiometricType.fingerprint)) {
+      return 'استخدم بصمة إصبعك للتحقق من هويتك';
+    } else if (availableBiometrics.contains(BiometricType.iris)) {
+      return 'استخدم مسح القزحية للتحقق من هويتك';
+    } else {
+      return 'استخدم البيانات البيومترية للتحقق من هويتك';
+    }
+  }
+
+  static String _handlePlatformException(PlatformException exception) {
+    switch (exception.code) {
+      case 'NotAvailable':
+        return 'البصمة غير متاحة على هذا الجهاز';
+      case 'NotEnrolled':
+        return 'لم يتم تسجيل أي بيانات بيومترية. يرجى إضافة بصمة أو وجه في إعدادات الجهاز';
+      case 'LockedOut':
+        return 'تم قفل البصمة مؤقتاً بسبب المحاولات الفاشلة المتعددة';
+      case 'PermanentlyLockedOut':
+        return 'تم قفل البصمة نهائياً. يرجى استخدام كلمة المرور';
+      case 'BiometricOnlyNotSupported':
+        return 'البصمة وحدها غير مدعومة. يرجى استخدام كلمة المرور';
+      case 'UserCancel':
+        return 'تم إلغاء العملية من قبل المستخدم';
+      case 'UserFallback':
+        return 'اختار المستخدم استخدام كلمة المرور بدلاً من البصمة';
+      case 'SystemCancel':
+        return 'تم إلغاء العملية من قبل النظام';
+      case 'InvalidContext':
+        return 'سياق غير صالح للمصادقة';
+      case 'NotInteractive':
+        return 'لا يمكن عرض واجهة المصادقة حالياً';
+      default:
+        return 'خطأ غير معروف في المصادقة: ${exception.message ?? exception.code}';
+    }
+  }
+}
+
+/// Custom exception for biometric operations
+class BiometricException implements Exception {
+  final String message;
+  BiometricException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+/// Enhanced BiometricInfo model
+class BiometricInfo {
+  final bool isAvailable;
+  final bool isEnabled;
+  final List<String> availableTypes;
+
+  BiometricInfo({
+    required this.isAvailable,
+    required this.isEnabled,
+    required this.availableTypes,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'isAvailable': isAvailable,
+      'isEnabled': isEnabled,
+      'availableTypes': availableTypes,
+    };
+  }
+
+  factory BiometricInfo.fromMap(Map<String, dynamic> map) {
+    return BiometricInfo(
+      isAvailable: map['isAvailable'] ?? false,
+      isEnabled: map['isEnabled'] ?? false,
+      availableTypes: List<String>.from(map['availableTypes'] ?? []),
+    );
   }
 }
 

@@ -6,6 +6,7 @@ import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'dart:ui' as ui;
 import 'models.dart';
 import 'services.dart';
+import 'package:local_auth/local_auth.dart';
 
 class AppConstants {
   static const String appName = 'نظام إدارة تأشيرات العمرة';
@@ -1598,4 +1599,356 @@ class NotificationDropdown extends StatelessWidget {
       },
     );
   }
+}
+
+// Custom Biometric Verification Dialog
+class BiometricVerificationDialog extends StatefulWidget {
+  final List<BiometricType> availableBiometrics;
+  final String? reason;
+
+  const BiometricVerificationDialog({
+    Key? key,
+    required this.availableBiometrics,
+    this.reason,
+  }) : super(key: key);
+
+  @override
+  State<BiometricVerificationDialog> createState() => _BiometricVerificationDialogState();
+}
+
+class _BiometricVerificationDialogState extends State<BiometricVerificationDialog>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _opacityAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+
+    _scaleAnimation = Tween<double>(
+      begin: 0.8,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOutBack,
+    ));
+
+    _opacityAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOut,
+    ));
+
+    _animationController.forward();
+
+    // Auto-start authentication after dialog appears
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startAuthentication();
+    });
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  void _startAuthentication() {
+    // Delay to allow dialog to fully appear
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
+    });
+  }
+
+  String _getTitle() {
+    if (widget.availableBiometrics.contains(BiometricType.face)) {
+      return 'تحقق من هويتك';
+    } else if (widget.availableBiometrics.contains(BiometricType.fingerprint)) {
+      return 'Verify your identity';
+    } else {
+      return 'تحقق من هويتك';
+    }
+  }
+
+  String _getSubtitle() {
+    if (widget.availableBiometrics.contains(BiometricType.face)) {
+      return 'استخدم وجهك للتحقق من هويتك';
+    } else if (widget.availableBiometrics.contains(BiometricType.fingerprint)) {
+      return 'Use your fingerprint to verify your identity.';
+    } else {
+      return 'استخدم البيانات البيومترية للتحقق من هويتك';
+    }
+  }
+
+  IconData _getBiometricIcon() {
+    if (widget.availableBiometrics.contains(BiometricType.face)) {
+      return Icons.face;
+    } else if (widget.availableBiometrics.contains(BiometricType.fingerprint)) {
+      return Icons.fingerprint;
+    } else {
+      return Icons.security;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animationController,
+      builder: (context, child) {
+        return Opacity(
+          opacity: _opacityAnimation.value,
+          child: Transform.scale(
+            scale: _scaleAnimation.value,
+            child: Dialog(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: Container(
+                width: MediaQuery.of(context).size.width * 0.85,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E), // Dark background like in image
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header section
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+                      child: Column(
+                        children: [
+                          // Biometric icon with animation
+                          Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.1),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.3),
+                                width: 2,
+                              ),
+                            ),
+                            child: Icon(
+                              _getBiometricIcon(),
+                              size: 40,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          
+                          // Title
+                          Text(
+                            _getTitle(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.5,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 12),
+                          
+                          // Subtitle
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              widget.reason ?? _getSubtitle(),
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.8),
+                                fontSize: 16,
+                                height: 1.4,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    // Divider
+                    Container(
+                      height: 1,
+                      color: Colors.white.withOpacity(0.2),
+                    ),
+                    
+                    // Cancel button
+                    Container(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () => Navigator.of(context).pop(false),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.only(
+                              bottomLeft: Radius.circular(16),
+                              bottomRight: Radius.circular(16),
+                            ),
+                          ),
+                        ),
+                        child: const Text(
+                          'CANCEL',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// Alternative simpler version that matches the exact style in image 2
+class SystemStyleBiometricDialog extends StatelessWidget {
+  final List<BiometricType> availableBiometrics;
+  final String? reason;
+
+  const SystemStyleBiometricDialog({
+    Key? key,
+    required this.availableBiometrics,
+    this.reason,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.8,
+        decoration: BoxDecoration(
+          color: const Color(0xFF2D2D2D), // Matches the dark theme in image
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Content area
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+              child: Column(
+                children: [
+                  // Title
+                  const Text(
+                    'Verify your identity',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Subtitle
+                  Text(
+                    reason ?? 'Use your fingerprint to verify your identity.',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+            
+            // Divider
+            Container(
+              height: 0.5,
+              color: Colors.white.withOpacity(0.3),
+            ),
+            
+            // Cancel button
+            Container(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.only(
+                      bottomLeft: Radius.circular(12),
+                      bottomRight: Radius.circular(12),
+                    ),
+                  ),
+                ),
+                child: const Text(
+                  'CANCEL',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Helper function to show the biometric dialog
+Future<bool> showBiometricVerificationDialog(
+  BuildContext context, {
+  List<BiometricType>? availableBiometrics,
+  String? reason,
+  bool useSystemStyle = true,
+}) async {
+  final biometrics = availableBiometrics ?? await BiometricService.getAvailableBiometrics();
+  
+  if (biometrics.isEmpty) {
+    throw BiometricException('لا توجد بيانات بيومترية مسجلة');
+  }
+
+  final bool? result = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    barrierColor: Colors.black.withOpacity(0.7),
+    builder: (BuildContext context) {
+      if (useSystemStyle) {
+        return SystemStyleBiometricDialog(
+          availableBiometrics: biometrics,
+          reason: reason,
+        );
+      } else {
+        return BiometricVerificationDialog(
+          availableBiometrics: biometrics,
+          reason: reason,
+        );
+      }
+    },
+  );
+
+  return result ?? false;
 }

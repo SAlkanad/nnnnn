@@ -5,6 +5,9 @@ import 'settings_screens.dart';
 import 'screens.dart';
 import 'models.dart';
 import 'core.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:provider/provider.dart';
+import 'controllers.dart';
 
 class AppRoutes {
   static Route<dynamic> generateRoute(RouteSettings settings) {
@@ -452,105 +455,641 @@ class _ClientImagesScreenState extends State<ClientImagesScreen> {
   }
 }
 
+// Enhanced BiometricSetupScreen
 class BiometricSetupScreen extends StatefulWidget {
+  final String? username;
+  final bool isFromSettings;
+
+  const BiometricSetupScreen({
+    Key? key,
+    this.username,
+    this.isFromSettings = false,
+  }) : super(key: key);
+
   @override
   State<BiometricSetupScreen> createState() => _BiometricSetupScreenState();
 }
 
-class _BiometricSetupScreenState extends State<BiometricSetupScreen> {
+class _BiometricSetupScreenState extends State<BiometricSetupScreen>
+    with TickerProviderStateMixin {
   bool _isChecking = true;
   bool _isAvailable = false;
-  List<String> _availableTypes = [];
+  bool _isEnabled = false;
+  List<BiometricType> _availableTypes = [];
+  String _statusMessage = '';
+  String? _errorMessage;
+
+  late AnimationController _pulseController;
+  late AnimationController _checkController;
+  late Animation<double> _pulseAnimation;
+  late Animation<double> _checkAnimation;
 
   @override
   void initState() {
     super.initState();
-    _checkBiometricAvailability();
+    _initializeAnimations();
+    _checkBiometricStatus();
   }
 
-  Future<void> _checkBiometricAvailability() async {
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _checkController.dispose();
+    super.dispose();
+  }
+
+  void _initializeAnimations() {
+    _pulseController = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    );
+
+    _checkController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _pulseAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.3,
+    ).animate(CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    ));
+
+    _checkAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _checkController,
+      curve: Curves.elasticOut,
+    ));
+
+    _pulseController.repeat(reverse: true);
+  }
+
+  Future<void> _checkBiometricStatus() async {
+    setState(() {
+      _isChecking = true;
+      _errorMessage = null;
+    });
+
     try {
       final isAvailable = await BiometricService.isBiometricAvailable();
-      final types = await BiometricService.getAvailableBiometrics();
+      final availableTypes = await BiometricService.getAvailableBiometrics();
       
+      bool isEnabled = false;
+      if (widget.username != null) {
+        isEnabled = await BiometricService.isBiometricEnabled(widget.username!);
+      }
+
       setState(() {
         _isAvailable = isAvailable;
-        _availableTypes = types.map((t) => t.toString()).toList();
+        _availableTypes = availableTypes;
+        _isEnabled = isEnabled;
+        _statusMessage = _generateStatusMessage();
         _isChecking = false;
       });
+
+      if (_isAvailable) {
+        _pulseController.stop();
+        _checkController.forward();
+      }
     } catch (e) {
       setState(() {
         _isAvailable = false;
+        _isEnabled = false;
+        _errorMessage = e.toString();
+        _statusMessage = 'خطأ في فحص البصمة';
         _isChecking = false;
       });
+      _pulseController.stop();
     }
+  }
+
+  String _generateStatusMessage() {
+    if (!_isAvailable) {
+      if (_availableTypes.isEmpty) {
+        return 'لا توجد بيانات بيومترية مسجلة على هذا الجهاز.\nيرجى إضافة بصمة إصبع أو وجه في إعدادات الجهاز.';
+      }
+      return 'البصمة غير متاحة على هذا الجهاز.';
+    }
+
+    if (_isEnabled) {
+      return 'البصمة مفعلة ومتاحة للاستخدام.';
+    }
+
+    final types = _availableTypes.map((type) {
+      switch (type) {
+        case BiometricType.fingerprint:
+          return 'بصمة الإصبع';
+        case BiometricType.face:
+          return 'التعرف على الوجه';
+        case BiometricType.iris:
+          return 'مسح القزحية';
+        default:
+          return 'مصادقة بيومترية';
+      }
+    }).join(' و ');
+
+    return 'يمكنك استخدام $types لتسجيل الدخول السريع والآمن.';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('إعداد البصمة'),
+        title: Text(widget.isFromSettings ? 'إعدادات البصمة' : 'إعداد البصمة'),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.black,
       ),
-      body: _isChecking
-          ? Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  Icon(
-                    _isAvailable ? Icons.fingerprint : Icons.fingerprint_outlined,
-                    size: 100,
-                    color: _isAvailable ? Colors.green : Colors.grey,
-                  ),
-                  SizedBox(height: 20),
-                  Text(
-                    _isAvailable ? 'البصمة متاحة' : 'البصمة غير متاحة',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: _isAvailable ? Colors.green : Colors.red,
-                    ),
-                  ),
-                  SizedBox(height: 10),
-                  if (_isAvailable) ...[
-                    Text(
-                      'يمكنك استخدام البصمة لتسجيل الدخول السريع',
-                      style: TextStyle(fontSize: 16),
-                      textAlign: TextAlign.center,
-                    ),
-                    SizedBox(height: 20),
-                    Text(
-                      'الأنواع المتاحة:',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    ..._availableTypes.map((type) => Text('• $type')),
-                  ] else ...[
-                    Text(
-                      'لا يمكن استخدام البصمة على هذا الجهاز',
-                      style: TextStyle(fontSize: 16),
-                      textAlign: TextAlign.center,
-                    ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildBiometricIcon(),
+                    const SizedBox(height: 32),
+                    _buildStatusCard(),
+                    const SizedBox(height: 32),
+                    _buildInstructions(),
                   ],
-                  Spacer(),
-                  if (_isAvailable)
-                    ElevatedButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: Text('استخدام البصمة'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        minimumSize: Size(double.infinity, 50),
-                      ),
-                    ),
-                  SizedBox(height: 10),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: Text('تخطي'),
+                ),
+              ),
+              _buildActionButtons(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBiometricIcon() {
+    IconData iconData;
+    Color iconColor;
+
+    if (_isChecking) {
+      iconData = Icons.fingerprint;
+      iconColor = Colors.grey;
+    } else if (!_isAvailable) {
+      iconData = Icons.fingerprint_outlined;
+      iconColor = Colors.red;
+    } else if (_isEnabled) {
+      iconData = _getPrimaryBiometricIcon();
+      iconColor = Colors.green;
+    } else {
+      iconData = _getPrimaryBiometricIcon();
+      iconColor = Colors.blue;
+    }
+
+    Widget iconWidget = Icon(
+      iconData,
+      size: 100,
+      color: iconColor,
+    );
+
+    if (_isChecking) {
+      return AnimatedBuilder(
+        animation: _pulseAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _pulseAnimation.value,
+            child: iconWidget,
+          );
+        },
+      );
+    } else if (_isAvailable) {
+      return AnimatedBuilder(
+        animation: _checkAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _checkAnimation.value,
+            child: iconWidget,
+          );
+        },
+      );
+    }
+
+    return iconWidget;
+  }
+
+  Widget _buildStatusCard() {
+    Color cardColor;
+    Color textColor;
+    IconData statusIcon;
+
+    if (_isChecking) {
+      cardColor = Colors.grey.shade100;
+      textColor = Colors.grey.shade700;
+      statusIcon = Icons.search;
+    } else if (!_isAvailable) {
+      cardColor = Colors.red.shade50;
+      textColor = Colors.red.shade700;
+      statusIcon = Icons.error_outline;
+    } else if (_isEnabled) {
+      cardColor = Colors.green.shade50;
+      textColor = Colors.green.shade700;
+      statusIcon = Icons.check_circle;
+    } else {
+      cardColor = Colors.blue.shade50;
+      textColor = Colors.blue.shade700;
+      statusIcon = Icons.info;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: textColor.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(statusIcon, color: textColor, size: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _getStatusTitle(),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
                   ),
-                ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _statusMessage,
+            style: TextStyle(
+              fontSize: 14,
+              color: textColor,
+              height: 1.4,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          if (_errorMessage != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage!,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.red.shade600,
+                fontStyle: FontStyle.italic,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInstructions() {
+    if (_isChecking || !_isAvailable) {
+      return Container();
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.lightbulb_outline, color: Colors.orange, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'نصائح مهمة:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ..._getInstructionsList().map((instruction) => Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('• ', style: TextStyle(color: Colors.grey.shade600)),
+                Expanded(
+                  child: Text(
+                    instruction,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )).toList(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButtons() {
+    return Column(
+      children: [
+        if (_isAvailable && !_isEnabled && widget.username != null) ...[
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: _isChecking ? null : _enableBiometric,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 2,
+              ),
+              icon: Icon(_getPrimaryBiometricIcon()),
+              label: Text(
+                'تفعيل البصمة',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        
+        if (_isAvailable && _isEnabled && widget.username != null) ...[
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: _testBiometric,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 2,
+              ),
+              icon: Icon(Icons.play_arrow),
+              label: Text(
+                'اختبار البصمة',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: OutlinedButton.icon(
+              onPressed: _disableBiometric,
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: Colors.red),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: Icon(Icons.fingerprint_outlined, color: Colors.red),
+              label: Text(
+                'إلغاء تفعيل البصمة',
+                style: TextStyle(color: Colors.red, fontSize: 16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        if (!_isAvailable) ...[
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: _openDeviceSettings,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: Icon(Icons.settings),
+              label: Text(
+                'فتح إعدادات الجهاز',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Always show refresh button
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: OutlinedButton.icon(
+            onPressed: _checkBiometricStatus,
+            style: OutlinedButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            icon: Icon(Icons.refresh),
+            label: Text(
+              'إعادة فحص',
+              style: TextStyle(fontSize: 16),
+            ),
+          ),
+        ),
+        
+        // Close/Skip button
+        const SizedBox(height: 12),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _isEnabled),
+          child: Text(
+            widget.isFromSettings ? 'إغلاق' : (_isEnabled ? 'متابعة' : 'تخطي'),
+            style: TextStyle(fontSize: 16),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _getStatusTitle() {
+    if (_isChecking) {
+      return 'جاري فحص البصمة...';
+    } else if (!_isAvailable) {
+      return 'البصمة غير متاحة';
+    } else if (_isEnabled) {
+      return 'البصمة مفعلة';
+    } else {
+      return 'البصمة متاحة';
+    }
+  }
+
+  IconData _getPrimaryBiometricIcon() {
+    if (_availableTypes.contains(BiometricType.face)) {
+      return Icons.face;
+    } else if (_availableTypes.contains(BiometricType.fingerprint)) {
+      return Icons.fingerprint;
+    } else if (_availableTypes.contains(BiometricType.iris)) {
+      return Icons.visibility;
+    } else {
+      return Icons.security;
+    }
+  }
+
+  List<String> _getInstructionsList() {
+    List<String> instructions = [];
+
+    if (_availableTypes.contains(BiometricType.fingerprint)) {
+      instructions.addAll([
+        'تأكد من نظافة وجفاف إصبعك',
+        'ضع إصبعك بالكامل على المستشعر',
+        'لا تضغط بقوة مفرطة على المستشعر',
+      ]);
+    }
+
+    if (_availableTypes.contains(BiometricType.face)) {
+      instructions.addAll([
+        'تأكد من وجود إضاءة كافية',
+        'انظر مباشرة إلى الكاميرا',
+        'احتفظ بالجهاز على مستوى العين',
+      ]);
+    }
+
+    instructions.addAll([
+      'يمكنك إلغاء البصمة في أي وقت من الإعدادات',
+      'البصمة تعمل فقط مع هذا الجهاز',
+    ]);
+
+    return instructions;
+  }
+
+  Future<void> _enableBiometric() async {
+    if (widget.username == null) {
+      _showMessage('خطأ: اسم المستخدم غير متوفر', isError: true);
+      return;
+    }
+
+    try {
+      final authController = Provider.of<AuthController>(context, listen: false);
+      await authController.enableBiometric();
+      
+      setState(() {
+        _isEnabled = true;
+        _statusMessage = _generateStatusMessage();
+      });
+
+      _showMessage('تم تفعيل البصمة بنجاح');
+    } catch (e) {
+      _showMessage(e.toString(), isError: true);
+    }
+  }
+
+  Future<void> _disableBiometric() async {
+    if (widget.username == null) {
+      _showMessage('خطأ: اسم المستخدم غير متوفر', isError: true);
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('إلغاء تفعيل البصمة'),
+        content: Text('هل أنت متأكد من إلغاء تفعيل البصمة؟ ستحتاج لإدخال كلمة المرور عند تسجيل الدخول.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('تأكيد'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        final authController = Provider.of<AuthController>(context, listen: false);
+        await authController.disableBiometric();
+        
+        setState(() {
+          _isEnabled = false;
+          _statusMessage = _generateStatusMessage();
+        });
+
+        _showMessage('تم إلغاء تفعيل البصمة');
+      } catch (e) {
+        _showMessage(e.toString(), isError: true);
+      }
+    }
+  }
+
+  Future<void> _testBiometric() async {
+    try {
+      final authController = Provider.of<AuthController>(context, listen: false);
+      final success = await authController.testBiometricAuthentication();
+      
+      if (success) {
+        _showMessage('تم اختبار البصمة بنجاح');
+      } else {
+        _showMessage('فشل في اختبار البصمة', isError: true);
+      }
+    } catch (e) {
+      _showMessage(e.toString(), isError: true);
+    }
+  }
+
+  Future<void> _openDeviceSettings() async {
+    try {
+      // This would open device settings - implementation depends on platform
+      _showMessage('يرجى فتح إعدادات الجهاز وإضافة بصمة أو وجه في قسم الحماية والأمان');
+    } catch (e) {
+      _showMessage('لا يمكن فتح إعدادات الجهاز تلقائياً', isError: true);
+    }
+  }
+
+  void _showMessage(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              isError ? Icons.error : Icons.check_circle,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red : Colors.green,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+      ),
     );
   }
 }

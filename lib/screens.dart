@@ -10,31 +10,131 @@ import 'services.dart';
 import 'core.dart';
 import 'settings_screens.dart';
 
+// Updated LoginScreen - Replace the existing one in screens.dart
+
 class LoginScreen extends StatefulWidget {
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
 
+  bool _biometricAvailable = false;
+  bool _biometricEnabled = false;
+  List<BiometricType> _availableBiometrics = [];
+  String _biometricStatusMessage = '';
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initializeBiometric();
     _loadSavedCredentials();
   }
 
-  Future<void> _loadSavedCredentials() async {
-    final authController = Provider.of<AuthController>(context, listen: false);
-    final credentials = await authController.getSavedCredentials();
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
-    if (credentials['username'] != null) {
-      _usernameController.text = credentials['username']!;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      // Re-check biometric availability when app resumes
+      _initializeBiometric();
     }
-    if (credentials['password'] != null) {
-      _passwordController.text = credentials['password']!;
+  }
+
+  Future<void> _initializeBiometric() async {
+    try {
+      final isAvailable = await BiometricService.isBiometricAvailable();
+      final availableBiometrics = await BiometricService.getAvailableBiometrics();
+
+      if (mounted) {
+        setState(() {
+          _biometricAvailable = isAvailable;
+          _availableBiometrics = availableBiometrics;
+          _biometricStatusMessage = _getBiometricStatusMessage();
+        });
+      }
+
+      // Check if biometric is enabled for current user
+      if (_usernameController.text.isNotEmpty) {
+        await _checkBiometricEnabled();
+      }
+    } catch (e) {
+      print('❌ Error initializing biometric: $e');
+      if (mounted) {
+        setState(() {
+          _biometricAvailable = false;
+          _biometricEnabled = false;
+          _biometricStatusMessage = 'خطأ في تحميل البصمة';
+        });
+      }
+    }
+  }
+
+  Future<void> _checkBiometricEnabled() async {
+    if (_usernameController.text.isNotEmpty && _biometricAvailable) {
+      try {
+        final isEnabled = await BiometricService.isBiometricEnabled(_usernameController.text);
+        if (mounted) {
+          setState(() {
+            _biometricEnabled = isEnabled;
+          });
+        }
+      } catch (e) {
+        print('❌ Error checking biometric enabled: $e');
+      }
+    }
+  }
+
+  String _getBiometricStatusMessage() {
+    if (!_biometricAvailable) {
+      return 'البصمة غير متاحة';
+    }
+
+    if (_availableBiometrics.isEmpty) {
+      return 'لا توجد بيانات بيومترية مسجلة';
+    }
+
+    final types = _availableBiometrics.map((type) {
+      switch (type) {
+        case BiometricType.fingerprint:
+          return 'بصمة الإصبع';
+        case BiometricType.face:
+          return 'الوجه';
+        case BiometricType.iris:
+          return 'القزحية';
+        default:
+          return 'بيومتري';
+      }
+    }).join(' و ');
+
+    return 'متاح: $types';
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    try {
+      final authController = Provider.of<AuthController>(context, listen: false);
+      final credentials = await authController.getSavedCredentials();
+
+      if (credentials['username'] != null) {
+        _usernameController.text = credentials['username']!;
+        await _checkBiometricEnabled();
+      }
+      if (credentials['password'] != null) {
+        _passwordController.text = credentials['password']!;
+      }
+    } catch (e) {
+      print('❌ Error loading saved credentials: $e');
     }
   }
 
@@ -44,104 +144,288 @@ class _LoginScreenState extends State<LoginScreen> {
       appBar: AppBar(
         title: Text('تسجيل الدخول'),
         centerTitle: true,
+        elevation: 0,
+        backgroundColor: Theme.of(context).primaryColor,
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Consumer<AuthController>(
-          builder: (context, authController, child) {
-            if (authController.isLoggedIn) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                final user = authController.currentUser!;
-                switch (user.role) {
-                  case UserRole.admin:
-                    Navigator.pushReplacementNamed(context, '/admin_dashboard');
-                    break;
-                  case UserRole.user:
-                  case UserRole.agency:
-                    Navigator.pushReplacementNamed(context, '/user_dashboard');
-                    break;
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Theme.of(context).primaryColor.withOpacity(0.1),
+              Colors.white,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Consumer<AuthController>(
+              builder: (context, authController, child) {
+                // Auto-navigate if already logged in
+                if (authController.isLoggedIn) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    final user = authController.currentUser!;
+                    switch (user.role) {
+                      case UserRole.admin:
+                        Navigator.pushReplacementNamed(context, '/admin_dashboard');
+                        break;
+                      case UserRole.user:
+                      case UserRole.agency:
+                        Navigator.pushReplacementNamed(context, '/user_dashboard');
+                        break;
+                    }
+                  });
                 }
-              });
-            }
 
-            return Form(
-              key: _formKey,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    height: 120,
-                    width: 120,
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade100,
-                      borderRadius: BorderRadius.circular(60),
-                    ),
-                    child: Icon(
-                      Icons.mosque,
-                      size: 60,
-                      color: Colors.blue.shade800,
-                    ),
-                  ),
-                  SizedBox(height: 32),
-
-                  CustomTextField(
-                    controller: _usernameController,
-                    label: 'اسم المستخدم',
-                    icon: Icons.person,
-                    validator: ValidationUtils.validateUsername,
-                    onChanged: (value) => authController.checkBiometricAvailability(),
-                  ),
-                  SizedBox(height: 16),
-
-                  CustomTextField(
-                    controller: _passwordController,
-                    label: 'كلمة المرور',
-                    icon: Icons.lock,
-                    isPassword: true,
-                    validator: ValidationUtils.validatePassword,
-                  ),
-                  SizedBox(height: 16),
-
-                  CheckboxListTile(
-                    title: Text('تذكرني'),
-                    value: authController.rememberMe,
-                    onChanged: (value) {
-                      authController.rememberMe = value ?? false;
-                    },
-                    controlAffinity: ListTileControlAffinity.leading,
-                  ),
-                  SizedBox(height: 24),
-
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: authController.isLoading ? null : _handleLogin,
-                      child: authController.isLoading
-                          ? CircularProgressIndicator(color: Colors.white)
-                          : Text('دخول', style: TextStyle(fontSize: 18)),
-                    ),
-                  ),
-
-                  if (authController.biometricAvailable && _usernameController.text.isNotEmpty) ...[
-                    SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: OutlinedButton.icon(
-                        onPressed: authController.isLoading ? null : _handleBiometricLogin,
-                        icon: Icon(Icons.fingerprint),
-                        label: Text('تسجيل الدخول ببصمة الإصبع'),
+                return Form(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // App Logo
+                      Container(
+                        height: 120,
+                        width: 120,
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade100,
+                          borderRadius: BorderRadius.circular(60),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.blue.withOpacity(0.3),
+                              blurRadius: 20,
+                              offset: Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.mosque,
+                          size: 60,
+                          color: Colors.blue.shade800,
+                        ),
                       ),
-                    ),
-                  ],
-                ],
-              ),
-            );
-          },
+                      SizedBox(height: 32),
+
+                      // App Title
+                      Text(
+                        AppConstants.appName,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue.shade800,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      SizedBox(height: 32),
+
+                      // Username Field
+                      CustomTextField(
+                        controller: _usernameController,
+                        label: 'اسم المستخدم',
+                        icon: Icons.person,
+                        validator: ValidationUtils.validateUsername,
+                        onChanged: (value) {
+                          _checkBiometricEnabled();
+                        },
+                      ),
+                      SizedBox(height: 16),
+
+                      // Password Field
+                      CustomTextField(
+                        controller: _passwordController,
+                        label: 'كلمة المرور',
+                        icon: Icons.lock,
+                        isPassword: true,
+                        validator: ValidationUtils.validatePassword,
+                      ),
+                      SizedBox(height: 16),
+
+                      // Remember Me Checkbox
+                      CheckboxListTile(
+                        title: Text('تذكرني'),
+                        value: authController.rememberMe,
+                        onChanged: (value) {
+                          authController.rememberMe = value ?? false;
+                        },
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      SizedBox(height: 24),
+
+                      // Login Button
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton(
+                          onPressed: authController.isLoading ? null : _handleLogin,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            elevation: 3,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: authController.isLoading
+                              ? SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                              : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.login),
+                              SizedBox(width: 8),
+                              Text('دخول', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // Biometric Login Section
+                      if (_biometricAvailable &&
+                          _usernameController.text.isNotEmpty &&
+                          _biometricEnabled) ...[
+                        SizedBox(height: 16),
+                        Text(
+                          'أو',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 14,
+                          ),
+                        ),
+                        SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: OutlinedButton.icon(
+                            onPressed: authController.isLoading ? null : _handleBiometricLogin,
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: Colors.blue),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            icon: Icon(
+                              _availableBiometrics.contains(BiometricType.face)
+                                  ? Icons.face
+                                  : Icons.fingerprint,
+                              color: Colors.blue,
+                            ),
+                            label: Text(
+                              _getBiometricButtonText(),
+                              style: TextStyle(
+                                color: Colors.blue,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+
+                      // Biometric Setup for Available but Not Enabled
+                      if (_biometricAvailable &&
+                          _usernameController.text.isNotEmpty &&
+                          !_biometricEnabled) ...[
+                        SizedBox(height: 24),
+                        Container(
+                          padding: EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue.shade200),
+                          ),
+                          child: Column(
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.fingerprint, color: Colors.blue),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'تفعيل تسجيل الدخول السريع',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.blue.shade800,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                _biometricStatusMessage,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.blue.shade600,
+                                ),
+                              ),
+                              SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton(
+                                  onPressed: _setupBiometric,
+                                  child: Text('تفعيل البصمة'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      // Biometric Status Info for Unavailable
+                      if (!_biometricAvailable && _usernameController.text.isNotEmpty) ...[
+                        SizedBox(height: 24),
+                        Container(
+                          padding: EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.info_outline, color: Colors.grey, size: 20),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _biometricStatusMessage,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      SizedBox(height: 32),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
         ),
       ),
     );
+  }
+
+  String _getBiometricButtonText() {
+    if (_availableBiometrics.contains(BiometricType.face)) {
+      return 'تسجيل الدخول بالوجه';
+    } else if (_availableBiometrics.contains(BiometricType.fingerprint)) {
+      return 'تسجيل الدخول ببصمة الإصبع';
+    } else {
+      return 'تسجيل الدخول البيومتري';
+    }
   }
 
   Future<void> _handleLogin() async {
@@ -153,7 +437,7 @@ class _LoginScreenState extends State<LoginScreen> {
           _passwordController.text,
         );
 
-        if (success) {
+        if (success && mounted) {
           final user = authController.currentUser!;
 
           if (user.isFrozen) {
@@ -161,49 +445,149 @@ class _LoginScreenState extends State<LoginScreen> {
             return;
           }
 
-          switch (user.role) {
-            case UserRole.admin:
-              Navigator.pushReplacementNamed(context, '/admin_dashboard');
-              break;
-            case UserRole.user:
-            case UserRole.agency:
-              Navigator.pushReplacementNamed(context, '/user_dashboard');
-              break;
-          }
+          _navigateToUserDashboard(user.role);
         }
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.error, color: Colors.white),
+                  SizedBox(width: 8),
+                  Expanded(child: Text(e.toString())),
+                ],
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
   }
 
   Future<void> _handleBiometricLogin() async {
-    try {
-      final authController = Provider.of<AuthController>(context, listen: false);
-      final success = await authController.loginWithBiometric(_usernameController.text);
+    if (_usernameController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('يرجى إدخال اسم المستخدم أولاً')),
+      );
+      return;
+    }
 
-      if (success) {
-        final user = authController.currentUser!;
-        switch (user.role) {
-          case UserRole.admin:
-            Navigator.pushReplacementNamed(context, '/admin_dashboard');
-            break;
-          case UserRole.user:
-          case UserRole.agency:
-            Navigator.pushReplacementNamed(context, '/user_dashboard');
-            break;
+    try {
+      // Show the custom dialog first
+      final shouldProceed = await showBiometricVerificationDialog(
+        context,
+        availableBiometrics: _availableBiometrics,
+        reason: 'استخدم بصمتك لتسجيل الدخول',
+      );
+
+      if (shouldProceed) {
+        final authController = Provider.of<AuthController>(context, listen: false);
+        final success = await authController.loginWithBiometric(_usernameController.text);
+
+        if (success && mounted) {
+          final user = authController.currentUser!;
+          _navigateToUserDashboard(user.role);
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.warning, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('فشل في المصادقة ببصمة الإصبع'),
+                ],
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
         }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('فشل في المصادقة ببصمة الإصبع')),
-        );
       }
     } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.error, color: Colors.white),
+                SizedBox(width: 8),
+                Expanded(child: Text(e.toString())),
+              ],
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _setupBiometric() async {
+    if (_usernameController.text.isEmpty || _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('خطأ في المصادقة ببصمة الإصبع')),
+        SnackBar(content: Text('يرجى إدخال اسم المستخدم وكلمة المرور أولاً')),
       );
+      return;
+    }
+
+    try {
+      // Verify credentials first
+      final authController = Provider.of<AuthController>(context, listen: false);
+      final success = await authController.login(
+        _usernameController.text,
+        _passwordController.text,
+      );
+
+      if (success) {
+        // Enable biometric
+        await BiometricService.enableBiometric(_usernameController.text);
+
+        setState(() {
+          _biometricEnabled = true;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('تم تفعيل المصادقة ببصمة الإصبع'),
+                ],
+              ),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.error, color: Colors.white),
+                SizedBox(width: 8),
+                Expanded(child: Text(e.toString())),
+              ],
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _navigateToUserDashboard(UserRole role) {
+    switch (role) {
+      case UserRole.admin:
+        Navigator.pushReplacementNamed(context, '/admin_dashboard');
+        break;
+      case UserRole.user:
+      case UserRole.agency:
+        Navigator.pushReplacementNamed(context, '/user_dashboard');
+        break;
     }
   }
 
@@ -211,7 +595,13 @@ class _LoginScreenState extends State<LoginScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('حساب مجمد'),
+        title: Row(
+          children: [
+            Icon(Icons.block, color: Colors.red),
+            SizedBox(width: 8),
+            Text('حساب مجمد'),
+          ],
+        ),
         content: Text('تم تجميد حسابك: $reason'),
         actions: [
           TextButton(
@@ -221,13 +611,6 @@ class _LoginScreenState extends State<LoginScreen> {
         ],
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _usernameController.dispose();
-    _passwordController.dispose();
-    super.dispose();
   }
 }
 
