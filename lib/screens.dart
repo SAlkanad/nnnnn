@@ -505,6 +505,10 @@ class UserDashboard extends StatelessWidget {
   }
 }
 
+// Fixed section from screens.dart - around line 800-900
+// The issue was that the _ClientFormScreenState class was not properly closed
+// and the dispose method was orphaned outside the class
+
 class ClientFormScreen extends BaseFormScreen {
   final ClientModel? client;
 
@@ -822,6 +826,7 @@ class _ClientFormScreenState extends BaseFormScreenState<ClientFormScreen> {
         final client = ClientModel(
           id: widget.client?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
           clientName: _clientNameController.text,
+          username: _clientNameController.text, // Add username field
           clientPhone: _clientPhoneController.text,
           secondPhone: _secondPhoneController.text.isEmpty ? null : _secondPhoneController.text,
           phoneCountry: _phoneCountry,
@@ -866,8 +871,8 @@ class _ClientFormScreenState extends BaseFormScreenState<ClientFormScreen> {
       }
     }
   }
-}
 
+  // FIXED: This dispose method should be inside the _ClientFormScreenState class
   @override
   void dispose() {
     _clientNameController.dispose();
@@ -878,7 +883,7 @@ class _ClientFormScreenState extends BaseFormScreenState<ClientFormScreen> {
     _notesController.dispose();
     super.dispose();
   }
-}
+} // Properly close the _ClientFormScreenState class
 
 class ClientManagementScreen extends StatefulWidget {
   @override

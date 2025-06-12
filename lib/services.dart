@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/cupertino.dart' show BuildContext;
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
@@ -13,6 +15,12 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'models.dart';
 import 'core.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:dio/dio.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 
 class BiometricService {
   static final LocalAuthentication _localAuth = LocalAuthentication();
@@ -223,7 +231,506 @@ class AuthService {
     }
   }
 }
+class ImageServiceExtensions {
+  static final ImagePicker _picker = ImagePicker();
 
+  /// Picks multiple images from gallery or camera
+  /// Returns null if user cancels or empty list if no images selected
+  static Future<List<File>?> pickMultipleImages({
+    int maxImages = 10,
+    int imageQuality = 80,
+    double? maxWidth,
+    double? maxHeight,
+  }) async {
+    try {
+      // Request permissions first
+      final permission = await _requestGalleryPermission();
+      if (!permission) {
+        throw Exception('صلاحية الوصول للمعرض مطلوبة');
+      }
+
+      // Pick multiple images
+      final List<XFile>? xFiles = await _picker.pickMultiImage(
+        imageQuality: imageQuality,
+        maxWidth: maxWidth,
+        maxHeight: maxHeight,
+      );
+
+      if (xFiles == null || xFiles.isEmpty) {
+        return null;
+      }
+
+      // Limit number of images if specified
+      final limitedFiles = xFiles.take(maxImages).toList();
+
+      // Convert XFile to File
+      final List<File> files = limitedFiles.map((xFile) => File(xFile.path)).toList();
+
+      return files;
+    } catch (e) {
+      throw Exception('خطأ في اختيار الصور: ${e.toString()}');
+    }
+  }
+
+  /// Picks a single image with option to choose source
+  static Future<File?> pickSingleImage({
+    ImageSource source = ImageSource.gallery,
+    int imageQuality = 80,
+    double? maxWidth,
+    double? maxHeight,
+  }) async {
+    try {
+      // Request appropriate permissions
+      bool permission;
+      if (source == ImageSource.camera) {
+        permission = await _requestCameraPermission();
+      } else {
+        permission = await _requestGalleryPermission();
+      }
+
+      if (!permission) {
+        throw Exception('الصلاحية المطلوبة غير متاحة');
+      }
+
+      final XFile? xFile = await _picker.pickImage(
+        source: source,
+        imageQuality: imageQuality,
+        maxWidth: maxWidth,
+        maxHeight: maxHeight,
+      );
+
+      if (xFile == null) {
+        return null;
+      }
+
+      return File(xFile.path);
+    } catch (e) {
+      throw Exception('خطأ في اختيار الصورة: ${e.toString()}');
+    }
+  }
+
+  /// Shows image source selection dialog and picks image
+  static Future<File?> pickImageWithSourceDialog(BuildContext context) async {
+    final ImageSource? source = await showDialog<ImageSource>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('اختر مصدر الصورة'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: Icon(Icons.camera_alt),
+                title: Text('الكاميرا'),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              ListTile(
+                leading: Icon(Icons.photo_library),
+                title: Text('المعرض'),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (source != null) {
+      return await pickSingleImage(source: source);
+    }
+    return null;
+  }
+
+  /// Downloads and saves image from URL to device
+  static Future<String> downloadAndSaveImage(String imageUrl, String fileName) async {
+    try {
+      final permission = await _requestStoragePermission();
+      if (!permission) {
+        throw Exception('صلاحية التخزين مطلوبة');
+      }
+
+      final dio = Dio();
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = path.join(directory.path, 'downloads', fileName);
+
+      // Create directory if it doesn't exist
+      final downloadDir = Directory(path.dirname(filePath));
+      if (!downloadDir.existsSync()) {
+        downloadDir.createSync(recursive: true);
+      }
+
+      // Download the image
+      await dio.download(imageUrl, filePath);
+
+      return filePath;
+    } catch (e) {
+      throw Exception('خطأ في تحميل الصورة: ${e.toString()}');
+    }
+  }
+
+  /// Requests gallery/photos permission
+  static Future<bool> _requestGalleryPermission() async {
+    final status = await Permission.photos.request();
+    return status == PermissionStatus.granted;
+  }
+
+  /// Requests camera permission
+  static Future<bool> _requestCameraPermission() async {
+    final status = await Permission.camera.request();
+    return status == PermissionStatus.granted;
+  }
+
+  /// Requests storage permission
+  static Future<bool> _requestStoragePermission() async {
+    final status = await Permission.storage.request();
+    return status == PermissionStatus.granted;
+  }
+}
+
+// New CommunicationService class
+class CommunicationService {
+  /// Sends WhatsApp message to a phone number
+  static Future<void> sendWhatsAppMessage(String phoneNumber, String message) async {
+    try {
+      if (phoneNumber.isEmpty) {
+        throw Exception('رقم الهاتف مطلوب');
+      }
+
+      if (message.isEmpty) {
+        throw Exception('نص الرسالة مطلوب');
+      }
+
+      // Clean and format phone number
+      String cleanedPhone = phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
+
+      // Ensure phone number has country code
+      if (!cleanedPhone.startsWith('966') && !cleanedPhone.startsWith('967')) {
+        // Default to Saudi Arabia if no country code
+        if (cleanedPhone.startsWith('5')) {
+          cleanedPhone = '966$cleanedPhone';
+        } else if (cleanedPhone.startsWith('7')) {
+          cleanedPhone = '967$cleanedPhone';
+        } else {
+          throw Exception('رقم الهاتف غير صحيح');
+        }
+      }
+
+      // Encode message for URL
+      final encodedMessage = Uri.encodeComponent(message);
+      final whatsappUrl = 'https://wa.me/$cleanedPhone?text=$encodedMessage';
+      final uri = Uri.parse(whatsappUrl);
+
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        throw Exception('تطبيق الواتساب غير مثبت');
+      }
+    } catch (e) {
+      throw Exception('خطأ في إرسال رسالة الواتساب: ${e.toString()}');
+    }
+  }
+
+  /// Makes a phone call to the specified number
+  static Future<void> makePhoneCall(String phoneNumber) async {
+    try {
+      if (phoneNumber.isEmpty) {
+        throw Exception('رقم الهاتف مطلوب');
+      }
+
+      // Clean phone number
+      String cleanedPhone = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
+
+      // Add + if not present and starts with country code
+      if (!cleanedPhone.startsWith('+') && (cleanedPhone.startsWith('966') || cleanedPhone.startsWith('967'))) {
+        cleanedPhone = '+$cleanedPhone';
+      }
+
+      final telUrl = 'tel:$cleanedPhone';
+      final uri = Uri.parse(telUrl);
+
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        throw Exception('لا يمكن إجراء المكالمة');
+      }
+    } catch (e) {
+      throw Exception('خطأ في إجراء المكالمة: ${e.toString()}');
+    }
+  }
+
+  /// Sends SMS to the specified number
+  static Future<void> sendSMS(String phoneNumber, String message) async {
+    try {
+      if (phoneNumber.isEmpty) {
+        throw Exception('رقم الهاتف مطلوب');
+      }
+
+      if (message.isEmpty) {
+        throw Exception('نص الرسالة مطلوب');
+      }
+
+      // Clean phone number
+      String cleanedPhone = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
+
+      // Encode message for URL
+      final encodedMessage = Uri.encodeComponent(message);
+      final smsUrl = 'sms:$cleanedPhone?body=$encodedMessage';
+      final uri = Uri.parse(smsUrl);
+
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        throw Exception('لا يمكن إرسال الرسالة النصية');
+      }
+    } catch (e) {
+      throw Exception('خطأ في إرسال الرسالة النصية: ${e.toString()}');
+    }
+  }
+
+  /// Opens email app with pre-filled recipient and subject
+  static Future<void> sendEmail(String email, {String? subject, String? body}) async {
+    try {
+      if (email.isEmpty) {
+        throw Exception('عنوان البريد الإلكتروني مطلوب');
+      }
+
+      String emailUrl = 'mailto:$email';
+
+      final params = <String>[];
+      if (subject != null && subject.isNotEmpty) {
+        params.add('subject=${Uri.encodeComponent(subject)}');
+      }
+      if (body != null && body.isNotEmpty) {
+        params.add('body=${Uri.encodeComponent(body)}');
+      }
+
+      if (params.isNotEmpty) {
+        emailUrl += '?${params.join('&')}';
+      }
+
+      final uri = Uri.parse(emailUrl);
+
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        throw Exception('لا يمكن فتح تطبيق البريد الإلكتروني');
+      }
+    } catch (e) {
+      throw Exception('خطأ في إرسال البريد الإلكتروني: ${e.toString()}');
+    }
+  }
+}
+
+// Enhanced FileService for file operations
+class FileService {
+  /// Picks files with specified extensions
+  static Future<List<File>?> pickFiles({
+    List<String>? allowedExtensions,
+    bool allowMultiple = true,
+    FileType type = FileType.any,
+  }) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: type,
+        allowMultiple: allowMultiple,
+        allowedExtensions: allowedExtensions,
+      );
+
+      if (result == null || result.files.isEmpty) {
+        return null;
+      }
+
+      final files = result.files
+          .where((file) => file.path != null)
+          .map((file) => File(file.path!))
+          .toList();
+
+      return files;
+    } catch (e) {
+      throw Exception('خطأ في اختيار الملفات: ${e.toString()}');
+    }
+  }
+
+  /// Saves data to a file in the app's documents directory
+  static Future<String> saveDataToFile(String fileName, String data) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File(path.join(directory.path, fileName));
+
+      await file.writeAsString(data);
+
+      return file.path;
+    } catch (e) {
+      throw Exception('خطأ في حفظ الملف: ${e.toString()}');
+    }
+  }
+
+  /// Reads data from a file
+  static Future<String> readDataFromFile(String filePath) async {
+    try {
+      final file = File(filePath);
+
+      if (!file.existsSync()) {
+        throw Exception('الملف غير موجود');
+      }
+
+      return await file.readAsString();
+    } catch (e) {
+      throw Exception('خطأ في قراءة الملف: ${e.toString()}');
+    }
+  }
+
+  /// Deletes a file
+  static Future<bool> deleteFile(String filePath) async {
+    try {
+      final file = File(filePath);
+
+      if (file.existsSync()) {
+        await file.delete();
+        return true;
+      }
+
+      return false;
+    } catch (e) {
+      throw Exception('خطأ في حذف الملف: ${e.toString()}');
+    }
+  }
+
+  /// Gets the size of a file in bytes
+  static Future<int> getFileSize(String filePath) async {
+    try {
+      final file = File(filePath);
+
+      if (!file.existsSync()) {
+        throw Exception('الملف غير موجود');
+      }
+
+      return await file.length();
+    } catch (e) {
+      throw Exception('خطأ في حساب حجم الملف: ${e.toString()}');
+    }
+  }
+}
+
+// Addition to ClientModel class - missing getter method
+extension ClientModelExtensions on ClientModel {
+  /// Returns the full client phone number with country code
+  String get fullClientPhone => fullPrimaryPhone;
+
+  /// Returns both phone numbers formatted
+  List<String> get allPhoneNumbers {
+    final phones = <String>[fullPrimaryPhone];
+    if (secondPhone != null && secondPhone!.isNotEmpty) {
+      phones.add(fullSecondaryPhone);
+    }
+    return phones;
+  }
+
+  /// Returns the primary phone number for display
+  String get displayPhoneNumber {
+    return WhatsAppService.getDisplayPhoneNumber(clientPhone, phoneCountry);
+  }
+
+  /// Returns the secondary phone number for display
+  String? get displaySecondaryPhoneNumber {
+    if (secondPhone == null || secondPhone!.isEmpty) return null;
+    return WhatsAppService.getDisplayPhoneNumber(secondPhone!, phoneCountry);
+  }
+}
+
+// Enhanced validation service
+class ValidationService {
+  /// Validates multiple phone numbers
+  static List<String> validatePhoneNumbers(List<String> phoneNumbers, PhoneCountry country) {
+    final errors = <String>[];
+
+    for (int i = 0; i < phoneNumbers.length; i++) {
+      try {
+        final isValid = WhatsAppService.isValidPhoneNumber(phoneNumbers[i], country);
+        if (!isValid) {
+          errors.add('رقم الهاتف ${i + 1} غير صحيح');
+        }
+      } catch (e) {
+        errors.add('رقم الهاتف ${i + 1}: ${e.toString()}');
+      }
+    }
+
+    return errors;
+  }
+
+  /// Validates client data comprehensively
+  static List<String> validateClientData(ClientModel client) {
+    final errors = <String>[];
+
+    // Validate required fields
+    if (client.clientName.trim().isEmpty) {
+      errors.add('اسم العميل مطلوب');
+    }
+
+    if (client.clientPhone.trim().isEmpty) {
+      errors.add('رقم الهاتف الأساسي مطلوب');
+    }
+
+    // Validate phone numbers
+    try {
+      final isValid = WhatsAppService.isValidPhoneNumber(client.clientPhone, client.phoneCountry);
+      if (!isValid) {
+        errors.add('رقم الهاتف الأساسي غير صحيح');
+      }
+    } catch (e) {
+      errors.add('رقم الهاتف الأساسي: ${e.toString()}');
+    }
+
+    // Validate secondary phone if provided
+    if (client.secondPhone != null && client.secondPhone!.isNotEmpty) {
+      try {
+        final isValid = WhatsAppService.isValidPhoneNumber(client.secondPhone!, client.phoneCountry);
+        if (!isValid) {
+          errors.add('رقم الهاتف الثانوي غير صحيح');
+        }
+      } catch (e) {
+        errors.add('رقم الهاتف الثانوي: ${e.toString()}');
+      }
+    }
+
+    // Validate entry date
+    if (client.entryDate.isAfter(DateTime.now())) {
+      errors.add('تاريخ الدخول لا يمكن أن يكون في المستقبل');
+    }
+
+    return errors;
+  }
+
+  /// Validates user data
+  static List<String> validateUserData(UserModel user) {
+    final errors = <String>[];
+
+    // Validate required fields
+    if (user.username.trim().isEmpty) {
+      errors.add('اسم المستخدم مطلوب');
+    }
+
+    if (user.name.trim().isEmpty) {
+      errors.add('الاسم الكامل مطلوب');
+    }
+
+    if (user.phone.trim().isEmpty) {
+      errors.add('رقم الهاتف مطلوب');
+    }
+
+    // Validate username format
+    if (!RegExp(r'^[a-zA-Z0-9_]{3,}$').hasMatch(user.username)) {
+      errors.add('اسم المستخدم يجب أن يكون 3 أحرف على الأقل ويحتوي على أحرف وأرقام فقط');
+    }
+
+    // Validate email if provided
+    if (user.email.isNotEmpty && !RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(user.email)) {
+      errors.add('البريد الإلكتروني غير صحيح');
+    }
+
+    return errors;
+  }
+}
 class DatabaseService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 

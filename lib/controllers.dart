@@ -3,7 +3,7 @@ import 'models.dart';
 import 'services.dart';
 import 'core.dart';
 import 'dart:io';
-
+import 'settings_screens.dart';
 class AuthController extends ChangeNotifier {
   UserModel? _currentUser;
   bool _isLoading = false;
@@ -842,7 +842,7 @@ class SettingsController extends ChangeNotifier {
       await DatabaseService.clearCache();
       notifyListeners();
     } catch (e) {
-      throw e;
+      rethrow;
     }
   }
 
@@ -856,7 +856,7 @@ class SettingsController extends ChangeNotifier {
       await DatabaseService.clearCache();
       notifyListeners();
     } catch (e) {
-      throw e;
+      rethrow;
     }
   }
 }

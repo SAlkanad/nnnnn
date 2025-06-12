@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -245,6 +247,8 @@ class StatusUpdateService {
 class NotificationService {
   static Timer? _notificationTimer;
   static bool _isRunning = false;
+
+  static get CommunicationService => null;
 
   static void startScheduledNotifications() {
     if (_isRunning) return;

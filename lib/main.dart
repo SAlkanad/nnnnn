@@ -10,7 +10,7 @@ import 'routes.dart';
 import 'models.dart';
 import 'core.dart';
 import 'services.dart';
-import 'app_initialization_service.dart';
+import 'app_initialization_service.dart' hide StatusUpdateService;
 import 'error_handler.dart';
 import 'network_utils.dart';
 

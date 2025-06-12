@@ -1,5 +1,7 @@
 import 'package:intl/intl.dart';
 
+import 'core.dart';
+
 enum UserRole { admin, user, agency }
 
 class UserModel {
@@ -137,7 +139,352 @@ extension ClientStatusExtension on ClientStatus {
     }
   }
 }
+// Additional model classes to be added to lib/models.dart
+// These classes are referenced in controllers but not defined
 
+class StatusSettings {
+  final int greenDays;
+  final int yellowDays;
+  final int redDays;
+
+  StatusSettings({
+    required this.greenDays,
+    required this.yellowDays,
+    required this.redDays,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'greenDays': greenDays,
+      'yellowDays': yellowDays,
+      'redDays': redDays,
+    };
+  }
+
+  factory StatusSettings.fromMap(Map<String, dynamic> map) {
+    return StatusSettings(
+      greenDays: map['greenDays'] ?? AppConstants.defaultGreenDays,
+      yellowDays: map['yellowDays'] ?? AppConstants.defaultYellowDays,
+      redDays: map['redDays'] ?? AppConstants.defaultRedDays,
+    );
+  }
+
+  StatusSettings copyWith({
+    int? greenDays,
+    int? yellowDays,
+    int? redDays,
+  }) {
+    return StatusSettings(
+      greenDays: greenDays ?? this.greenDays,
+      yellowDays: yellowDays ?? this.yellowDays,
+      redDays: redDays ?? this.redDays,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is StatusSettings &&
+        other.greenDays == greenDays &&
+        other.yellowDays == yellowDays &&
+        other.redDays == redDays;
+  }
+
+  @override
+  int get hashCode => greenDays.hashCode ^ yellowDays.hashCode ^ redDays.hashCode;
+
+  @override
+  String toString() {
+    return 'StatusSettings(greenDays: $greenDays, yellowDays: $yellowDays, redDays: $redDays)';
+  }
+}
+
+// Additional utility class for managing app-wide configuration
+class AppConfiguration {
+  final StatusSettings statusSettings;
+  final NotificationSettings notificationSettings;
+  final Map<String, String> whatsappMessages;
+  final Map<String, bool> adminFilters;
+
+  AppConfiguration({
+    required this.statusSettings,
+    required this.notificationSettings,
+    required this.whatsappMessages,
+    required this.adminFilters,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'clientStatusSettings': statusSettings.toMap(),
+      'clientNotificationSettings': {
+        'firstTier': notificationSettings.clientTiers.isNotEmpty
+            ? notificationSettings.clientTiers[0].toMap() : {},
+        'secondTier': notificationSettings.clientTiers.length > 1
+            ? notificationSettings.clientTiers[1].toMap() : {},
+        'thirdTier': notificationSettings.clientTiers.length > 2
+            ? notificationSettings.clientTiers[2].toMap() : {},
+      },
+      'userNotificationSettings': {
+        'firstTier': notificationSettings.userTiers.isNotEmpty
+            ? notificationSettings.userTiers[0].toMap() : {},
+        'secondTier': notificationSettings.userTiers.length > 1
+            ? notificationSettings.userTiers[1].toMap() : {},
+        'thirdTier': notificationSettings.userTiers.length > 2
+            ? notificationSettings.userTiers[2].toMap() : {},
+      },
+      'whatsappMessages': whatsappMessages,
+      'adminFilters': adminFilters,
+    };
+  }
+
+  factory AppConfiguration.fromMap(Map<String, dynamic> map) {
+    // Parse status settings
+    final statusMap = map['clientStatusSettings'] ?? {};
+    final statusSettings = StatusSettings.fromMap(statusMap);
+
+    // Parse notification settings
+    final clientNotificationMap = map['clientNotificationSettings'] ?? {};
+    final userNotificationMap = map['userNotificationSettings'] ?? {};
+
+    final clientTiers = [
+      NotificationTier.fromMap(clientNotificationMap['firstTier'] ?? {}),
+      NotificationTier.fromMap(clientNotificationMap['secondTier'] ?? {}),
+      NotificationTier.fromMap(clientNotificationMap['thirdTier'] ?? {}),
+    ];
+
+    final userTiers = [
+      NotificationTier.fromMap(userNotificationMap['firstTier'] ?? {}),
+      NotificationTier.fromMap(userNotificationMap['secondTier'] ?? {}),
+      NotificationTier.fromMap(userNotificationMap['thirdTier'] ?? {}),
+    ];
+
+    final whatsappMap = map['whatsappMessages'] ?? {};
+    final notificationSettings = NotificationSettings(
+      clientTiers: clientTiers,
+      userTiers: userTiers,
+      clientWhatsAppMessage: whatsappMap['clientMessage'] ?? AppConstants.defaultClientMessage,
+      userWhatsAppMessage: whatsappMap['userMessage'] ?? AppConstants.defaultUserMessage,
+    );
+
+    return AppConfiguration(
+      statusSettings: statusSettings,
+      notificationSettings: notificationSettings,
+      whatsappMessages: Map<String, String>.from(whatsappMap),
+      adminFilters: Map<String, bool>.from(map['adminFilters'] ?? {}),
+    );
+  }
+
+  AppConfiguration copyWith({
+    StatusSettings? statusSettings,
+    NotificationSettings? notificationSettings,
+    Map<String, String>? whatsappMessages,
+    Map<String, bool>? adminFilters,
+  }) {
+    return AppConfiguration(
+      statusSettings: statusSettings ?? this.statusSettings,
+      notificationSettings: notificationSettings ?? this.notificationSettings,
+      whatsappMessages: whatsappMessages ?? this.whatsappMessages,
+      adminFilters: adminFilters ?? this.adminFilters,
+    );
+  }
+}
+
+// Extended user profile settings for more granular control
+class UserProfileSettings {
+  final bool notificationsEnabled;
+  final bool whatsappEnabled;
+  final bool autoScheduleEnabled;
+  final bool biometricEnabled;
+  final NotificationFrequency notificationFrequency;
+  final Map<String, dynamic> customSettings;
+
+  UserProfileSettings({
+    this.notificationsEnabled = true,
+    this.whatsappEnabled = true,
+    this.autoScheduleEnabled = true,
+    this.biometricEnabled = false,
+    this.notificationFrequency = NotificationFrequency.normal,
+    this.customSettings = const {},
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'notifications': notificationsEnabled,
+      'whatsapp': whatsappEnabled,
+      'autoSchedule': autoScheduleEnabled,
+      'biometric': biometricEnabled,
+      'notificationFrequency': notificationFrequency.toString().split('.').last,
+      'customSettings': customSettings,
+    };
+  }
+
+  factory UserProfileSettings.fromMap(Map<String, dynamic> map) {
+    return UserProfileSettings(
+      notificationsEnabled: map['notifications'] ?? true,
+      whatsappEnabled: map['whatsapp'] ?? true,
+      autoScheduleEnabled: map['autoSchedule'] ?? true,
+      biometricEnabled: map['biometric'] ?? false,
+      notificationFrequency: NotificationFrequency.values.firstWhere(
+            (e) => e.toString().split('.').last == map['notificationFrequency'],
+        orElse: () => NotificationFrequency.normal,
+      ),
+      customSettings: Map<String, dynamic>.from(map['customSettings'] ?? {}),
+    );
+  }
+
+  UserProfileSettings copyWith({
+    bool? notificationsEnabled,
+    bool? whatsappEnabled,
+    bool? autoScheduleEnabled,
+    bool? biometricEnabled,
+    NotificationFrequency? notificationFrequency,
+    Map<String, dynamic>? customSettings,
+  }) {
+    return UserProfileSettings(
+      notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+      whatsappEnabled: whatsappEnabled ?? this.whatsappEnabled,
+      autoScheduleEnabled: autoScheduleEnabled ?? this.autoScheduleEnabled,
+      biometricEnabled: biometricEnabled ?? this.biometricEnabled,
+      notificationFrequency: notificationFrequency ?? this.notificationFrequency,
+      customSettings: customSettings ?? this.customSettings,
+    );
+  }
+}
+
+// Enum for notification frequency settings
+enum NotificationFrequency {
+  low,     // Once per day
+  normal,  // Default frequency based on tier settings
+  high,    // More frequent notifications
+  urgent   // Maximum frequency for critical notifications
+}
+
+extension NotificationFrequencyExtension on NotificationFrequency {
+  String get displayName {
+    switch (this) {
+      case NotificationFrequency.low:
+        return 'منخفض';
+      case NotificationFrequency.normal:
+        return 'عادي';
+      case NotificationFrequency.high:
+        return 'عالي';
+      case NotificationFrequency.urgent:
+        return 'عاجل';
+    }
+  }
+
+  int get multiplier {
+    switch (this) {
+      case NotificationFrequency.low:
+        return 1;
+      case NotificationFrequency.normal:
+        return 2;
+      case NotificationFrequency.high:
+        return 3;
+      case NotificationFrequency.urgent:
+        return 5;
+    }
+  }
+}
+
+// Enhanced client statistics model
+class ClientStatistics {
+  final int totalClients;
+  final int activeClients;
+  final int exitedClients;
+  final int greenStatusCount;
+  final int yellowStatusCount;
+  final int redStatusCount;
+  final int whiteStatusCount;
+  final Map<VisaType, int> clientsByVisaType;
+  final Map<PhoneCountry, int> clientsByCountry;
+  final DateTime lastUpdated;
+
+  ClientStatistics({
+    required this.totalClients,
+    required this.activeClients,
+    required this.exitedClients,
+    required this.greenStatusCount,
+    required this.yellowStatusCount,
+    required this.redStatusCount,
+    required this.whiteStatusCount,
+    required this.clientsByVisaType,
+    required this.clientsByCountry,
+    required this.lastUpdated,
+  });
+
+  factory ClientStatistics.fromClients(List<ClientModel> clients) {
+    final now = DateTime.now();
+    final activeClients = clients.where((c) => !c.hasExited).toList();
+    final exitedClients = clients.where((c) => c.hasExited).toList();
+
+    final statusCounts = <ClientStatus, int>{};
+    final visaTypeCounts = <VisaType, int>{};
+    final countryCounts = <PhoneCountry, int>{};
+
+    for (final client in clients) {
+      statusCounts[client.status] = (statusCounts[client.status] ?? 0) + 1;
+      visaTypeCounts[client.visaType] = (visaTypeCounts[client.visaType] ?? 0) + 1;
+      countryCounts[client.phoneCountry] = (countryCounts[client.phoneCountry] ?? 0) + 1;
+    }
+
+    return ClientStatistics(
+      totalClients: clients.length,
+      activeClients: activeClients.length,
+      exitedClients: exitedClients.length,
+      greenStatusCount: statusCounts[ClientStatus.green] ?? 0,
+      yellowStatusCount: statusCounts[ClientStatus.yellow] ?? 0,
+      redStatusCount: statusCounts[ClientStatus.red] ?? 0,
+      whiteStatusCount: statusCounts[ClientStatus.white] ?? 0,
+      clientsByVisaType: visaTypeCounts,
+      clientsByCountry: countryCounts,
+      lastUpdated: now,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'totalClients': totalClients,
+      'activeClients': activeClients,
+      'exitedClients': exitedClients,
+      'greenStatusCount': greenStatusCount,
+      'yellowStatusCount': yellowStatusCount,
+      'redStatusCount': redStatusCount,
+      'whiteStatusCount': whiteStatusCount,
+      'clientsByVisaType': clientsByVisaType.map(
+            (key, value) => MapEntry(key.toString().split('.').last, value),
+      ),
+      'clientsByCountry': clientsByCountry.map(
+            (key, value) => MapEntry(key.toString().split('.').last, value),
+      ),
+      'lastUpdated': lastUpdated.millisecondsSinceEpoch,
+    };
+  }
+
+  factory ClientStatistics.fromMap(Map<String, dynamic> map) {
+    final visaTypeMap = Map<String, int>.from(map['clientsByVisaType'] ?? {});
+    final countryMap = Map<String, int>.from(map['clientsByCountry'] ?? {});
+
+    return ClientStatistics(
+      totalClients: map['totalClients'] ?? 0,
+      activeClients: map['activeClients'] ?? 0,
+      exitedClients: map['exitedClients'] ?? 0,
+      greenStatusCount: map['greenStatusCount'] ?? 0,
+      yellowStatusCount: map['yellowStatusCount'] ?? 0,
+      redStatusCount: map['redStatusCount'] ?? 0,
+      whiteStatusCount: map['whiteStatusCount'] ?? 0,
+      clientsByVisaType: visaTypeMap.map((key, value) => MapEntry(
+        VisaType.values.firstWhere((e) => e.toString().split('.').last == key),
+        value,
+      )),
+      clientsByCountry: countryMap.map((key, value) => MapEntry(
+        PhoneCountry.values.firstWhere((e) => e.toString().split('.').last == key),
+        value,
+      )),
+      lastUpdated: DateTime.fromMillisecondsSinceEpoch(map['lastUpdated']),
+    );
+  }
+}
 class ClientModel {
   final String id;
   final String clientName;
@@ -249,6 +596,8 @@ class ClientModel {
       version: map['version'] ?? 1,                 // Handle existing data without version
     );
   }
+
+  get fullClientPhone => null;
 
   ClientModel copyWith({
     String? id,
