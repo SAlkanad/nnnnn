@@ -327,7 +327,7 @@ abstract class NetworkAwareState<T extends NetworkAwareWidget> extends State<T> 
 class NetworkWrapper extends StatefulWidget {
   final Widget child;
   final bool showOfflineMessage;
-  final VoidCallback? onRetry;
+  final Future<void> Function()? onRetry;
   final String? customMessage;
 
   const NetworkWrapper({
