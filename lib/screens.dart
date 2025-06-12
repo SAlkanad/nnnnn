@@ -634,10 +634,23 @@ class _ClientFormScreenState extends BaseFormScreenState<ClientFormScreen> {
 
               CustomTextField(
                 controller: _secondPhoneController,
-                label: 'رقم إضافي (اختياري)',
+                label: 'رقم إضافي (اختياري - أي رقم دولي)',
                 icon: Icons.phone_android,
                 keyboardType: TextInputType.phone,
-                validator: (value) => ValidationUtils.validateSecondPhone(value, _phoneCountry),
+                validator: (value) => ValidationUtils.validateInternationalPhone(value),
+              ),
+              SizedBox(height: 8),
+// Add helper text for the second phone field
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  'يمكن إدخال أي رقم دولي (مثال: +1234567890 أو 0501234567)',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
               ),
               SizedBox(height: 16),
 

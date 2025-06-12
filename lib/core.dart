@@ -164,23 +164,77 @@ class ValidationUtils {
   }
 
   static String? validateSecondPhone(String? value, PhoneCountry country) {
+    // If empty or null, it's optional - return null (no error)
     if (value == null || value.trim().isEmpty) {
       return null;
     }
 
-    final cleanedValue = value.replaceAll(RegExp(r'[^\d]'), '');
+    // Clean the input to only digits and common phone symbols
+    final cleanedValue = value.replaceAll(RegExp(r'[^\d\+\-\(\)\s]'), '');
 
-    if (country == PhoneCountry.saudi) {
-      if (!RegExp(r'^(5)[0-9]{8}$').hasMatch(cleanedValue)) {
-        return 'رقم سعودي غير صحيح (يجب أن يبدأ بـ 5 ويكون 9 أرقام)';
+    // Remove spaces, dashes, and parentheses for digit counting
+    final digitsOnly = cleanedValue.replaceAll(RegExp(r'[^\d]'), '');
+
+    // Basic validation - must have at least 7 digits and no more than 15
+    if (digitsOnly.length < 7) {
+      return 'رقم الهاتف قصير جداً (7 أرقام على الأقل)';
+    }
+
+    if (digitsOnly.length > 15) {
+      return 'رقم الهاتف طويل جداً (15 رقم كحد أقصى)';
+    }
+
+    // Must contain only valid phone characters
+    if (!RegExp(r'^[\d\+\-\(\)\s]+$').hasMatch(cleanedValue)) {
+      return 'رقم الهاتف يحتوي على رموز غير صالحة';
+    }
+
+    return null; // Valid phone number
+  }
+
+  // Add a new validation function for more flexible international phone numbers
+  static String? validateInternationalPhone(String? value) {
+    // If empty or null, it's optional - return null (no error)
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+
+    // Clean the input
+    final cleanedValue = value.trim();
+
+    // Remove spaces, dashes, and parentheses for digit counting
+    final digitsOnly = cleanedValue.replaceAll(RegExp(r'[^\d]'), '');
+
+    // Basic validation rules for international phone numbers
+    if (digitsOnly.length < 7) {
+      return 'رقم الهاتف قصير جداً';
+    }
+
+    if (digitsOnly.length > 15) {
+      return 'رقم الهاتف طويل جداً';
+    }
+
+    // Allow international format with + at the beginning
+    if (cleanedValue.startsWith('+')) {
+      final withoutPlus = cleanedValue.substring(1);
+      final digitsAfterPlus = withoutPlus.replaceAll(RegExp(r'[^\d]'), '');
+
+      if (digitsAfterPlus.length < 7 || digitsAfterPlus.length > 15) {
+        return 'رقم دولي غير صحيح';
       }
-    } else if (country == PhoneCountry.yemen) {
-      if (!RegExp(r'^(7)[0-9]{8}$').hasMatch(cleanedValue)) {
-        return 'رقم يمني غير صحيح (يجب أن يبدأ بـ 7 ويكون 9 أرقام)';
+
+      // Must contain valid characters for international format
+      if (!RegExp(r'^[\d\-\(\)\s]+$').hasMatch(withoutPlus)) {
+        return 'رقم الهاتف يحتوي على رموز غير صالحة';
+      }
+    } else {
+      // Must contain only valid phone characters
+      if (!RegExp(r'^[\d\+\-\(\)\s]+$').hasMatch(cleanedValue)) {
+        return 'رقم الهاتف يحتوي على رموز غير صالحة';
       }
     }
 
-    return null;
+    return null; // Valid phone number
   }
 
   static String? validateEmail(String? value) {
@@ -947,20 +1001,26 @@ class ClientCard extends StatelessWidget {
                   IconButton(
                     icon: Icon(Icons.message, color: Colors.green),
                     onPressed: () => _sendWhatsApp(context),
-                    tooltip: 'إرسال واتساب',
+                    tooltip: 'إرسال واتساب - رقم أساسي',
                   ),
                   IconButton(
                     icon: Icon(Icons.call, color: Colors.blue),
                     onPressed: () => _makeCall(client.clientPhone),
-                    tooltip: 'اتصال',
+                    tooltip: 'اتصال - رقم أساسي',
                   ),
                 ],
-                if (!client.hasExited && client.secondPhone != null && client.secondPhone!.isNotEmpty)
+                if (!client.hasExited && client.secondPhone != null && client.secondPhone!.isNotEmpty) ...[
+                  IconButton(
+                    icon: Icon(Icons.message_outlined, color: Colors.green.shade300),
+                    onPressed: () => _sendInternationalWhatsApp(context),
+                    tooltip: 'إرسال واتساب - رقم إضافي',
+                  ),
                   IconButton(
                     icon: Icon(Icons.call_outlined, color: Colors.blue.shade300),
-                    onPressed: () => _makeCall(client.secondPhone!),
-                    tooltip: 'اتصال - رقم ثانوي',
+                    onPressed: () => _makeInternationalCall(client.secondPhone!),
+                    tooltip: 'اتصال - رقم إضافي',
                   ),
+                ],
                 Spacer(),
                 if (onEdit != null)
                   IconButton(
@@ -1022,7 +1082,24 @@ class ClientCard extends StatelessWidget {
             children: [
               Icon(Icons.phone_android, size: 16, color: Colors.green),
               SizedBox(width: 4),
-              Text('رقم ثانوي: ${client.secondPhone}'),
+              Text('رقم إضافي: ${client.secondPhone}'),
+              SizedBox(width: 8),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Text(
+                  'INT', // International
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.green.shade700,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
             ],
           ),
         ],
@@ -1058,6 +1135,20 @@ class ClientCard extends StatelessWidget {
     }
   }
 
+  void _sendInternationalWhatsApp(BuildContext context) async {
+    try {
+      await WhatsAppService.sendInternationalMessage(
+        phoneNumber: client.secondPhone!,
+        message: 'عزيزي العميل {clientName}، تنتهي صلاحية تأشيرتك قريباً.',
+        clientName: client.clientName,
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('خطأ في فتح الواتساب: ${e.toString()}')),
+      );
+    }
+  }
+
   void _makeCall(String phoneNumber) async {
     try {
       await WhatsAppService.callClient(
@@ -1065,6 +1156,18 @@ class ClientCard extends StatelessWidget {
         country: client.phoneCountry,
       );
     } catch (e) {
+      // Handle error silently
+    }
+  }
+
+  void _makeInternationalCall(String phoneNumber) async {
+    try {
+      await WhatsAppService.callInternationalNumber(
+        phoneNumber: phoneNumber,
+      );
+    } catch (e) {
+      // Handle error silently or show error message if needed
+      print('Error making international call: $e');
     }
   }
 
