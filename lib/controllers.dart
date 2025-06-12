@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:local_auth/local_auth.dart';
 import 'models.dart';
 import 'services.dart';
 import 'core.dart';
@@ -11,8 +10,6 @@ class AuthController extends ChangeNotifier {
   bool _rememberMe = false;
   bool _biometricEnabled = false;
   bool _biometricAvailable = false;
-  List<BiometricType> _availableBiometrics = [];
-  String? _lastBiometricError;
 
   UserModel? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
@@ -20,8 +17,6 @@ class AuthController extends ChangeNotifier {
   bool get rememberMe => _rememberMe;
   bool get biometricEnabled => _biometricEnabled;
   bool get biometricAvailable => _biometricAvailable;
-  List<BiometricType> get availableBiometrics => _availableBiometrics;
-  String? get lastBiometricError => _lastBiometricError;
 
   set rememberMe(bool value) {
     _rememberMe = value;
@@ -33,81 +28,39 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> _initializeAuth() async {
-    try {
-      // Check biometric availability
-      await _checkBiometricAvailability();
-      
-      // Check for auto-login user
-      final autoLoginUser = await AuthService.checkAutoLogin();
-      if (autoLoginUser != null) {
-        _currentUser = autoLoginUser;
-        await _updateBiometricStatus();
-        notifyListeners();
-      }
-      
-      // Load remember me preference
-      _rememberMe = await AuthService.shouldAutoLogin();
-      notifyListeners();
-    } catch (e) {
-      print('❌ Auth initialization error: $e');
-      _lastBiometricError = 'خطأ في تهيئة النظام';
+    await _checkBiometricAvailability();
+    
+    final autoLoginUser = await AuthService.checkAutoLogin();
+    if (autoLoginUser != null) {
+      _currentUser = autoLoginUser;
+      _biometricEnabled = await BiometricService.isBiometricEnabled(_currentUser!.id);
       notifyListeners();
     }
+    
+    _rememberMe = await AuthService.shouldAutoLogin();
+    notifyListeners();
   }
 
   Future<void> _checkBiometricAvailability() async {
-    try {
-      _biometricAvailable = await BiometricService.isBiometricAvailable();
-      _availableBiometrics = await BiometricService.getAvailableBiometrics();
-      _lastBiometricError = null;
-      
-      print('🔍 Biometric status updated:');
-      print('  Available: $_biometricAvailable');
-      print('  Types: $_availableBiometrics');
-      
-      notifyListeners();
-    } catch (e) {
-      print('❌ Error checking biometric availability: $e');
-      _biometricAvailable = false;
-      _availableBiometrics = [];
-      _lastBiometricError = 'خطأ في فحص البصمة';
-      notifyListeners();
-    }
-  }
-
-  Future<void> _updateBiometricStatus() async {
-    if (_currentUser != null) {
-      try {
-        _biometricEnabled = await BiometricService.isBiometricEnabled(_currentUser!.id);
-        _lastBiometricError = null;
-      } catch (e) {
-        print('❌ Error updating biometric status: $e');
-        _biometricEnabled = false;
-        _lastBiometricError = 'خطأ في تحديث حالة البصمة';
-      }
-      notifyListeners();
-    }
+    _biometricAvailable = await BiometricService.isBiometricAvailable();
+    notifyListeners();
   }
 
   Future<bool> login(String username, String password) async {
     _isLoading = true;
-    _lastBiometricError = null;
     notifyListeners();
 
     try {
       _currentUser = await AuthService.login(username, password);
       
-      // Save credentials if remember me is enabled
       await AuthService.saveCredentials(username, password, _rememberMe);
       
-      // Update biometric status for the logged-in user
-      await _updateBiometricStatus();
+      _biometricEnabled = await BiometricService.isBiometricEnabled(_currentUser!.id);
       
       _isLoading = false;
       notifyListeners();
       return true;
     } catch (e) {
-      print('❌ Login error: $e');
       _isLoading = false;
       notifyListeners();
       throw e;
@@ -115,253 +68,61 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<bool> loginWithBiometric(String username) async {
-    if (!_biometricAvailable) {
-      throw BiometricException('البصمة غير متاحة على هذا الجهاز');
-    }
+    if (!_biometricAvailable) return false;
 
     _isLoading = true;
-    _lastBiometricError = null;
     notifyListeners();
 
     try {
-      // Check if biometric is enabled for this user
-      final isEnabled = await BiometricService.isBiometricEnabled(username);
-      if (!isEnabled) {
-        throw BiometricException('البصمة غير مفعلة لهذا المستخدم');
-      }
-
-      // Authenticate with biometrics
-      final authenticated = await BiometricService.authenticateWithBiometrics(
-        reason: 'استخدم بصمتك لتسجيل الدخول'
-      );
-
-      if (authenticated) {
-        // Get saved credentials for biometric login
-        final credentials = await getSavedCredentials();
-        if (credentials['username'] == username && credentials['password'] != null) {
-          _currentUser = await AuthService.login(username, credentials['password']!, useBiometric: true);
-          _biometricEnabled = true;
-          _isLoading = false;
-          notifyListeners();
-          return true;
-        } else {
-          throw BiometricException('لا توجد بيانات محفوظة لهذا المستخدم');
-        }
+      _currentUser = await AuthService.loginWithBiometric(username);
+      if (_currentUser != null) {
+        _biometricEnabled = true;
+        _isLoading = false;
+        notifyListeners();
+        return true;
       } else {
         _isLoading = false;
         notifyListeners();
         return false;
       }
     } catch (e) {
-      print('❌ Biometric login error: $e');
       _isLoading = false;
-      _lastBiometricError = e.toString();
       notifyListeners();
-      
-      // Re-throw BiometricException as-is
-      if (e is BiometricException) {
-        rethrow;
-      }
-      
-      // Wrap other exceptions
-      throw BiometricException('خطأ في تسجيل الدخول بالبصمة: e.toString()}');
-    }
-  }
-
-  Future<void> enableBiometric() async {
-    if (_currentUser == null) {
-      throw Exception('يجب تسجيل الدخول أولاً');
-    }
-
-    if (!_biometricAvailable) {
-      throw BiometricException('البصمة غير متاحة على هذا الجهاز');
-    }
-
-    try {
-      await BiometricService.enableBiometric(_currentUser!.id);
-      _biometricEnabled = true;
-      _lastBiometricError = null;
-      notifyListeners();
-      
-      print('✅ Biometric enabled for user: ${_currentUser!.id}');
-    } catch (e) {
-      print('❌ Error enabling biometric: $e');
-      _lastBiometricError = e.toString();
-      notifyListeners();
-      rethrow;
-    }
-  }
-
-  Future<void> disableBiometric() async {
-    if (_currentUser == null) {
-      throw Exception('يجب تسجيل الدخول أولاً');
-    }
-
-    try {
-      await BiometricService.disableBiometric(_currentUser!.id);
-      _biometricEnabled = false;
-      _lastBiometricError = null;
-      notifyListeners();
-      
-      print('✅ Biometric disabled for user: ${_currentUser!.id}');
-    } catch (e) {
-      print('❌ Error disabling biometric: $e');
-      _lastBiometricError = e.toString();
-      notifyListeners();
-      rethrow;
-    }
-  }
-
-  Future<bool> checkBiometricAvailability() async {
-    await _checkBiometricAvailability();
-    return _biometricAvailable;
-  }
-
-  Future<bool> isBiometricEnabledForUser(String username) async {
-    try {
-      return await BiometricService.isBiometricEnabled(username);
-    } catch (e) {
-      print('❌ Error checking biometric enabled for user: $e');
       return false;
     }
   }
 
-  Future<BiometricInfo> getBiometricInfo() async {
-    try {
-      final info = await BiometricService.getBiometricInfo();
-      return BiometricInfo(
-        isAvailable: info.isAvailable,
-        isEnabled: _biometricEnabled,
-        availableTypes: info.availableTypes,
-      );
-    } catch (e) {
-      print('❌ Error getting biometric info: $e');
-      return BiometricInfo(
-        isAvailable: false,
-        isEnabled: false,
-        availableTypes: [],
-      );
-    }
-  }
-
-  Future<bool> testBiometricAuthentication() async {
-    if (!_biometricAvailable) {
-      throw BiometricException('البصمة غير متاحة على هذا الجهاز');
-    }
-
-    try {
-      return await BiometricService.authenticateWithBiometrics(
-        reason: 'اختبار المصادقة ببصمة الإصبع'
-      );
-    } catch (e) {
-      print('❌ Biometric test error: $e');
-      _lastBiometricError = e.toString();
+  Future<void> enableBiometric() async {
+    if (_currentUser != null && _biometricAvailable) {
+      await BiometricService.enableBiometric(_currentUser!.id);
+      _biometricEnabled = true;
       notifyListeners();
-      rethrow;
     }
   }
 
-  Future<void> resetBiometricSettings() async {
-    try {
-      await BiometricService.resetBiometricSettings();
-      _biometricEnabled = false;
-      _lastBiometricError = null;
-      await _checkBiometricAvailability();
-      
-      print('✅ Biometric settings reset');
-    } catch (e) {
-      print('❌ Error resetting biometric settings: $e');
-      _lastBiometricError = e.toString();
-      notifyListeners();
-      rethrow;
-    }
-  }
-
-  Future<void> refreshBiometricStatus() async {
-    await _checkBiometricAvailability();
+  Future<void> disableBiometric() async {
     if (_currentUser != null) {
-      await _updateBiometricStatus();
+      await BiometricService.disableBiometric(_currentUser!.id);
+      _biometricEnabled = false;
+      notifyListeners();
     }
+  }
+
+  Future<bool> checkBiometricAvailability() async {
+    _biometricAvailable = await BiometricService.isBiometricAvailable();
+    notifyListeners();
+    return _biometricAvailable;
   }
 
   Future<void> logout() async {
-    try {
-      await AuthService.logout();
-      _currentUser = null;
-      _biometricEnabled = false;
-      _lastBiometricError = null;
-      notifyListeners();
-      
-      print('✅ User logged out successfully');
-    } catch (e) {
-      print('❌ Logout error: $e');
-      // Still clear the current user even if logout fails
-      _currentUser = null;
-      _biometricEnabled = false;
-      notifyListeners();
-    }
+    await AuthService.logout();
+    _currentUser = null;
+    _biometricEnabled = false;
+    notifyListeners();
   }
 
   Future<Map<String, String?>> getSavedCredentials() async {
-    try {
-      return await AuthService.getSavedCredentials();
-    } catch (e) {
-      print('❌ Error getting saved credentials: $e');
-      return {'username': null, 'password': null};
-    }
-  }
-
-  // Helper method to get user-friendly biometric status message
-  String getBiometricStatusMessage() {
-    if (_lastBiometricError != null) {
-      return _lastBiometricError!;
-    }
-
-    if (!_biometricAvailable) {
-      return 'البصمة غير متاحة على هذا الجهاز';
-    }
-
-    if (_availableBiometrics.isEmpty) {
-      return 'لا توجد بيانات بيومترية مسجلة في الجهاز';
-    }
-
-    if (_currentUser != null && _biometricEnabled) {
-      return 'البصمة مفعلة ومتاحة للاستخدام';
-    }
-
-    final types = _availableBiometrics.map((type) {
-      switch (type) {
-        case BiometricType.fingerprint:
-          return 'بصمة الإصبع';
-        case BiometricType.face:
-          return 'التعرف على الوجه';
-        case BiometricType.iris:
-          return 'مسح القزحية';
-        default:
-          return 'مصادقة بيومترية';
-      }
-    }).join(' و ');
-
-    return 'متاح: $types';
-  }
-
-  // Helper method to get appropriate icon for biometric type
-  IconData getBiometricIcon() {
-    if (_availableBiometrics.contains(BiometricType.face)) {
-      return Icons.face;
-    } else if (_availableBiometrics.contains(BiometricType.fingerprint)) {
-      return Icons.fingerprint;
-    } else if (_availableBiometrics.contains(BiometricType.iris)) {
-      return Icons.visibility;
-    } else {
-      return Icons.security;
-    }
-  }
-
-  // Clear any cached error messages
-  void clearBiometricError() {
-    _lastBiometricError = null;
-    notifyListeners();
+    return await AuthService.getSavedCredentials();
   }
 }
 

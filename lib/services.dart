@@ -12,7 +12,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'dart:typed_data';
-import 'package:flutter/services.dart';
 import 'models.dart';
 import 'core.dart';
 import 'package:image_picker/image_picker.dart';
@@ -24,360 +23,57 @@ import 'package:path/path.dart' as path;
 
 class BiometricService {
   static final LocalAuthentication _localAuth = LocalAuthentication();
-  static const String _biometricEnabledKey = 'biometric_enabled_';
-  static const String _lastBiometricCheckKey = 'last_biometric_check';
 
-  /// Enhanced biometric availability check for new phones
   static Future<bool> isBiometricAvailable() async {
     try {
-      // Check if device supports biometrics
-      final bool isAvailable = await _localAuth.canCheckBiometrics;
-      if (!isAvailable) {
-        print('❌ Device does not support biometrics');
-        return false;
-      }
-
-      // Check if device has enrolled biometrics
-      final bool isDeviceSupported = await _localAuth.isDeviceSupported();
-      if (!isDeviceSupported) {
-        print('❌ Device is not supported for biometrics');
-        return false;
-      }
-
-      // Get available biometric types
-      final List<BiometricType> availableBiometrics = await _localAuth.getAvailableBiometrics();
-      if (availableBiometrics.isEmpty) {
-        print('❌ No biometrics enrolled on device');
-        return false;
-      }
-
-      print('✅ Biometrics available: $availableBiometrics');
+      final isAvailable = await _localAuth.canCheckBiometrics;
+      if (!isAvailable) return false;
       
-      // Cache the result for better performance
-      await _cacheBiometricAvailability(true);
-      return true;
-
+      final availableBiometrics = await _localAuth.getAvailableBiometrics();
+      return availableBiometrics.isNotEmpty;
     } catch (e) {
-      print('❌ Error checking biometric availability: $e');
-      await _cacheBiometricAvailability(false);
       return false;
     }
   }
 
-  /// Get available biometric types with enhanced detection
   static Future<List<BiometricType>> getAvailableBiometrics() async {
     try {
-      final List<BiometricType> availableBiometrics = await _localAuth.getAvailableBiometrics();
-      
-      print('🔍 Available biometrics detected:');
-      for (final biometric in availableBiometrics) {
-        print('  - ${_getBiometricDisplayName(biometric)}');
-      }
-      
-      return availableBiometrics;
+      return await _localAuth.getAvailableBiometrics();
     } catch (e) {
-      print('❌ Error getting available biometrics: $e');
       return [];
     }
   }
 
-  /// Enhanced biometric authentication with better error handling
-  static Future<bool> authenticateWithBiometrics({String? reason}) async {
+  static Future<bool> authenticateWithBiometrics() async {
     try {
-      // Check availability first
-      final bool isAvailable = await isBiometricAvailable();
-      if (!isAvailable) {
-        throw BiometricException('البصمة غير متاحة على هذا الجهاز');
-      }
+      final isAvailable = await isBiometricAvailable();
+      if (!isAvailable) return false;
 
-      // Get available biometrics to show appropriate message
-      final List<BiometricType> availableBiometrics = await getAvailableBiometrics();
-      final String localizedReason = reason ?? _getLocalizedReason(availableBiometrics);
-
-      print('🔐 Starting biometric authentication...');
-
-      // Perform authentication with enhanced options
-      final bool didAuthenticate = await _localAuth.authenticate(
-        localizedReason: localizedReason,
-        options: const AuthenticationOptions(
+      return await _localAuth.authenticate(
+        localizedReason: 'استخدم بصمتك لتسجيل الدخول',
+        options: AuthenticationOptions(
           biometricOnly: true,
           stickyAuth: true,
-          sensitiveTransaction: true,
         ),
       );
-
-      if (didAuthenticate) {
-        print('✅ Biometric authentication successful');
-        await _updateLastSuccessfulAuth();
-        return true;
-      } else {
-        print('❌ Biometric authentication failed');
-        return false;
-      }
-
-    } on PlatformException catch (e) {
-      print('❌ Platform exception during authentication: ${e.code} - ${e.message}');
-      throw BiometricException(_handlePlatformException(e));
     } catch (e) {
-      print('❌ Unexpected error during authentication: $e');
-      throw BiometricException('حدث خطأ غير متوقع في المصادقة');
-    }
-  }
-
-  /// Show custom biometric dialog like in the image
-  static Future<bool> showBiometricDialog(BuildContext context, {String? reason}) async {
-    try {
-      final availableBiometrics = await getAvailableBiometrics();
-      if (availableBiometrics.isEmpty) {
-        throw BiometricException('لا توجد بيانات بيومترية مسجلة');
-      }
-
-      // Show custom dialog first
-      final bool? shouldProceed = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) => BiometricVerificationDialog(
-          availableBiometrics: availableBiometrics,
-          reason: reason,
-        ),
-      );
-
-      if (shouldProceed == true) {
-        // Proceed with actual biometric authentication
-        return await authenticateWithBiometrics(reason: reason);
-      }
-
       return false;
-    } catch (e) {
-      print('❌ Error showing biometric dialog: $e');
-      rethrow;
     }
   }
 
-  /// Enable biometric for specific user
   static Future<void> enableBiometric(String userId) async {
-    try {
-      // Verify biometric availability before enabling
-      final bool isAvailable = await isBiometricAvailable();
-      if (!isAvailable) {
-        throw BiometricException('البصمة غير متاحة على هذا الجهاز');
-      }
-
-      // Test authentication before enabling
-      final bool authenticated = await authenticateWithBiometrics(
-        reason: 'تأكيد تفعيل المصادقة ببصمة الإصبع'
-      );
-
-      if (!authenticated) {
-        throw BiometricException('فشل في التحقق من البصمة');
-      }
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('$_biometricEnabledKey$userId', true);
-      await prefs.setString('biometric_user_$userId', userId);
-      
-      print('✅ Biometric enabled for user: $userId');
-
-    } catch (e) {
-      print('❌ Error enabling biometric: $e');
-      rethrow;
-    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('biometric_enabled_$userId', true);
   }
 
-  /// Disable biometric for specific user
   static Future<void> disableBiometric(String userId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('$_biometricEnabledKey$userId', false);
-      await prefs.remove('biometric_user_$userId');
-      
-      print('✅ Biometric disabled for user: $userId');
-    } catch (e) {
-      print('❌ Error disabling biometric: $e');
-      rethrow;
-    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('biometric_enabled_$userId', false);
   }
 
-  /// Check if biometric is enabled for specific user
   static Future<bool> isBiometricEnabled(String userId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final bool isEnabled = prefs.getBool('$_biometricEnabledKey$userId') ?? false;
-      
-      // Double-check device capability if enabled
-      if (isEnabled) {
-        final bool isAvailable = await isBiometricAvailable();
-        if (!isAvailable) {
-          // Auto-disable if device no longer supports biometric
-          await disableBiometric(userId);
-          return false;
-        }
-      }
-      
-      return isEnabled;
-    } catch (e) {
-      print('❌ Error checking biometric enabled status: $e');
-      return false;
-    }
-  }
-
-  /// Get biometric info for display
-  static Future<BiometricInfo> getBiometricInfo() async {
-    try {
-      final bool isAvailable = await isBiometricAvailable();
-      final List<BiometricType> availableTypes = isAvailable 
-          ? await getAvailableBiometrics() 
-          : [];
-
-      return BiometricInfo(
-        isAvailable: isAvailable,
-        isEnabled: false, // Will be set per user
-        availableTypes: availableTypes
-            .map((type) => _getBiometricDisplayName(type))
-            .toList(),
-      );
-    } catch (e) {
-      return BiometricInfo(
-        isAvailable: false,
-        isEnabled: false,
-        availableTypes: [],
-      );
-    }
-  }
-
-  /// Reset biometric settings (useful for troubleshooting)
-  static Future<void> resetBiometricSettings() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final keys = prefs.getKeys()
-          .where((key) => key.startsWith(_biometricEnabledKey) || 
-                         key.startsWith('biometric_user_') ||
-                         key == _lastBiometricCheckKey)
-          .toList();
-
-      for (final key in keys) {
-        await prefs.remove(key);
-      }
-
-      print('✅ Biometric settings reset');
-    } catch (e) {
-      print('❌ Error resetting biometric settings: $e');
-    }
-  }
-
-  // Private helper methods
-
-  static Future<void> _cacheBiometricAvailability(bool isAvailable) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('biometric_available', isAvailable);
-      await prefs.setInt(_lastBiometricCheckKey, DateTime.now().millisecondsSinceEpoch);
-    } catch (e) {
-      print('Warning: Could not cache biometric availability: $e');
-    }
-  }
-
-  static Future<void> _updateLastSuccessfulAuth() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('last_biometric_auth', DateTime.now().millisecondsSinceEpoch);
-    } catch (e) {
-      print('Warning: Could not update last auth time: $e');
-    }
-  }
-
-  static String _getBiometricDisplayName(BiometricType type) {
-    switch (type) {
-      case BiometricType.face:
-        return 'التعرف على الوجه';
-      case BiometricType.fingerprint:
-        return 'بصمة الإصبع';
-      case BiometricType.iris:
-        return 'مسح القزحية';
-      case BiometricType.strong:
-        return 'مصادقة قوية';
-      case BiometricType.weak:
-        return 'مصادقة ضعيفة';
-      default:
-        return 'مصادقة بيومترية';
-    }
-  }
-
-  static String _getLocalizedReason(List<BiometricType> availableBiometrics) {
-    if (availableBiometrics.contains(BiometricType.face)) {
-      return 'استخدم وجهك للتحقق من هويتك';
-    } else if (availableBiometrics.contains(BiometricType.fingerprint)) {
-      return 'استخدم بصمة إصبعك للتحقق من هويتك';
-    } else if (availableBiometrics.contains(BiometricType.iris)) {
-      return 'استخدم مسح القزحية للتحقق من هويتك';
-    } else {
-      return 'استخدم البيانات البيومترية للتحقق من هويتك';
-    }
-  }
-
-  static String _handlePlatformException(PlatformException exception) {
-    switch (exception.code) {
-      case 'NotAvailable':
-        return 'البصمة غير متاحة على هذا الجهاز';
-      case 'NotEnrolled':
-        return 'لم يتم تسجيل أي بيانات بيومترية. يرجى إضافة بصمة أو وجه في إعدادات الجهاز';
-      case 'LockedOut':
-        return 'تم قفل البصمة مؤقتاً بسبب المحاولات الفاشلة المتعددة';
-      case 'PermanentlyLockedOut':
-        return 'تم قفل البصمة نهائياً. يرجى استخدام كلمة المرور';
-      case 'BiometricOnlyNotSupported':
-        return 'البصمة وحدها غير مدعومة. يرجى استخدام كلمة المرور';
-      case 'UserCancel':
-        return 'تم إلغاء العملية من قبل المستخدم';
-      case 'UserFallback':
-        return 'اختار المستخدم استخدام كلمة المرور بدلاً من البصمة';
-      case 'SystemCancel':
-        return 'تم إلغاء العملية من قبل النظام';
-      case 'InvalidContext':
-        return 'سياق غير صالح للمصادقة';
-      case 'NotInteractive':
-        return 'لا يمكن عرض واجهة المصادقة حالياً';
-      default:
-        return 'خطأ غير معروف في المصادقة: ${exception.message ?? exception.code}';
-    }
-  }
-}
-
-/// Custom exception for biometric operations
-class BiometricException implements Exception {
-  final String message;
-  BiometricException(this.message);
-
-  @override
-  String toString() => message;
-}
-
-/// Enhanced BiometricInfo model
-class BiometricInfo {
-  final bool isAvailable;
-  final bool isEnabled;
-  final List<String> availableTypes;
-
-  BiometricInfo({
-    required this.isAvailable,
-    required this.isEnabled,
-    required this.availableTypes,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      'isAvailable': isAvailable,
-      'isEnabled': isEnabled,
-      'availableTypes': availableTypes,
-    };
-  }
-
-  factory BiometricInfo.fromMap(Map<String, dynamic> map) {
-    return BiometricInfo(
-      isAvailable: map['isAvailable'] ?? false,
-      isEnabled: map['isEnabled'] ?? false,
-      availableTypes: List<String>.from(map['availableTypes'] ?? []),
-    );
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('biometric_enabled_$userId') ?? false;
   }
 }
 
@@ -1072,6 +768,32 @@ class FileService {
   }
 }
 
+// Addition to ClientModel class - missing getter method
+extension ClientModelExtensions on ClientModel {
+  /// Returns the full client phone number with country code
+  String get fullClientPhone => fullPrimaryPhone;
+
+  /// Returns both phone numbers formatted
+  List<String> get allPhoneNumbers {
+    final phones = <String>[fullPrimaryPhone];
+    if (secondPhone != null && secondPhone!.isNotEmpty) {
+      phones.add(fullSecondaryPhone);
+    }
+    return phones;
+  }
+
+  /// Returns the primary phone number for display
+  String get displayPhoneNumber {
+    return WhatsAppService.getDisplayPhoneNumber(clientPhone, phoneCountry);
+  }
+
+  /// Returns the secondary phone number for display
+  String? get displaySecondaryPhoneNumber {
+    if (secondPhone == null || secondPhone!.isEmpty) return null;
+    return WhatsAppService.getDisplayPhoneNumber(secondPhone!, phoneCountry);
+  }
+}
+
 // Enhanced validation service
 class ValidationService {
   /// Validates multiple phone numbers
@@ -1165,7 +887,6 @@ class ValidationService {
     return errors;
   }
 }
-
 class DatabaseService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -1291,7 +1012,7 @@ class DatabaseService {
   }) async {
     try {
       List<ClientModel> clients;
-
+      
       if (isAdmin) {
         clients = await getAllClients();
       } else {
@@ -1759,32 +1480,6 @@ class WhatsAppService {
     }
   }
 
-  /// Sends WhatsApp message to an international phone number (for second phone)
-  static Future<void> sendInternationalMessage({
-    required String phoneNumber,
-    required String message,
-    required String clientName,
-  }) async {
-    try {
-      // Validate input parameters
-      _validateInputs(phoneNumber: phoneNumber, message: message);
-
-      // Format international phone number
-      final formattedPhone = _formatInternationalPhoneNumber(phoneNumber);
-
-      // Format message with client name
-      final formattedMessage = MessageTemplates.formatMessage(message, {
-        'clientName': clientName,
-      });
-
-      // Launch WhatsApp
-      await _launchWhatsApp(formattedPhone, formattedMessage);
-
-    } catch (e) {
-      throw _createWhatsAppException(e);
-    }
-  }
-
   static Future<void> callClient({
     required String phoneNumber,
     required PhoneCountry country,
@@ -1797,27 +1492,6 @@ class WhatsAppService {
 
       // Format and validate phone number
       final formattedPhone = _formatPhoneNumber(phoneNumber, country);
-
-      // Launch phone dialer
-      await _makePhoneCall(formattedPhone);
-
-    } catch (e) {
-      throw _createCallException(e);
-    }
-  }
-
-  /// Makes a call to an international phone number (for second phone)
-  static Future<void> callInternationalNumber({
-    required String phoneNumber,
-  }) async {
-    try {
-      // Validate phone number
-      if (phoneNumber.isEmpty) {
-        throw Exception('رقم الهاتف مطلوب');
-      }
-
-      // Format international phone number
-      final formattedPhone = _formatInternationalPhoneNumber(phoneNumber);
 
       // Launch phone dialer
       await _makePhoneCall(formattedPhone);
@@ -1902,262 +1576,6 @@ class WhatsAppService {
     }
 
     throw Exception('رقم الهاتف الدولي غير مدعوم');
-  }
-
-  /// Formats international phone numbers for WhatsApp and calling
-  static String _formatInternationalPhoneNumber(String phoneNumber) {
-    if (phoneNumber.isEmpty) {
-      throw Exception('رقم الهاتف فارغ');
-    }
-
-    // Remove all non-digit characters except +
-    String cleaned = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
-
-    if (cleaned.isEmpty) {
-      throw Exception('رقم الهاتف يجب أن يحتوي على أرقام');
-    }
-
-    // If it starts with +, remove it for processing
-    if (cleaned.startsWith('+')) {
-      cleaned = cleaned.substring(1);
-    }
-
-    // Validate minimum and maximum length
-    if (cleaned.length < 7 || cleaned.length > 15) {
-      throw Exception('رقم الهاتف غير صحيح (يجب أن يكون بين 7-15 رقم)');
-    }
-
-    // Add common country codes if the number doesn't seem to have one
-    if (cleaned.length <= 10 && !_hasCountryCode(cleaned)) {
-      // If it looks like a local Saudi number
-      if (cleaned.startsWith('5') && cleaned.length == 9) {
-        cleaned = '966' + cleaned;
-      }
-      // If it looks like a local Yemeni number
-      else if (cleaned.startsWith('7') && cleaned.length == 9) {
-        cleaned = '967' + cleaned;
-      }
-      // If it looks like a US number
-      else if (cleaned.length == 10) {
-        cleaned = '1' + cleaned;
-      }
-    }
-
-    return cleaned;
-  }
-
-  /// Checks if a phone number already has a country code
-  static bool _hasCountryCode(String phoneNumber) {
-    // Common country codes
-    final countryCodes = [
-      '1',    // US/Canada
-      '7',    // Russia/Kazakhstan
-      '20',   // Egypt
-      '27',   // South Africa
-      '30',   // Greece
-      '31',   // Netherlands
-      '32',   // Belgium
-      '33',   // France
-      '34',   // Spain
-      '36',   // Hungary
-      '39',   // Italy
-      '40',   // Romania
-      '41',   // Switzerland
-      '43',   // Austria
-      '44',   // UK
-      '45',   // Denmark
-      '46',   // Sweden
-      '47',   // Norway
-      '48',   // Poland
-      '49',   // Germany
-      '51',   // Peru
-      '52',   // Mexico
-      '53',   // Cuba
-      '54',   // Argentina
-      '55',   // Brazil
-      '56',   // Chile
-      '57',   // Colombia
-      '58',   // Venezuela
-      '60',   // Malaysia
-      '61',   // Australia
-      '62',   // Indonesia
-      '63',   // Philippines
-      '64',   // New Zealand
-      '65',   // Singapore
-      '66',   // Thailand
-      '81',   // Japan
-      '82',   // South Korea
-      '84',   // Vietnam
-      '86',   // China
-      '90',   // Turkey
-      '91',   // India
-      '92',   // Pakistan
-      '93',   // Afghanistan
-      '94',   // Sri Lanka
-      '95',   // Myanmar
-      '98',   // Iran
-      '212',  // Morocco
-      '213',  // Algeria
-      '216',  // Tunisia
-      '218',  // Libya
-      '220',  // Gambia
-      '221',  // Senegal
-      '222',  // Mauritania
-      '223',  // Mali
-      '224',  // Guinea
-      '225',  // Ivory Coast
-      '226',  // Burkina Faso
-      '227',  // Niger
-      '228',  // Togo
-      '229',  // Benin
-      '230',  // Mauritius
-      '231',  // Liberia
-      '232',  // Sierra Leone
-      '233',  // Ghana
-      '234',  // Nigeria
-      '235',  // Chad
-      '236',  // Central African Republic
-      '237',  // Cameroon
-      '238',  // Cape Verde
-      '239',  // São Tomé and Príncipe
-      '240',  // Equatorial Guinea
-      '241',  // Gabon
-      '242',  // Republic of the Congo
-      '243',  // Democratic Republic of the Congo
-      '244',  // Angola
-      '245',  // Guinea-Bissau
-      '246',  // British Indian Ocean Territory
-      '248',  // Seychelles
-      '249',  // Sudan
-      '250',  // Rwanda
-      '251',  // Ethiopia
-      '252',  // Somalia
-      '253',  // Djibouti
-      '254',  // Kenya
-      '255',  // Tanzania
-      '256',  // Uganda
-      '257',  // Burundi
-      '258',  // Mozambique
-      '260',  // Zambia
-      '261',  // Madagascar
-      '262',  // Mayotte and Réunion
-      '263',  // Zimbabwe
-      '264',  // Namibia
-      '265',  // Malawi
-      '266',  // Lesotho
-      '267',  // Botswana
-      '268',  // Swaziland
-      '269',  // Comoros
-      '290',  // Saint Helena
-      '291',  // Eritrea
-      '297',  // Aruba
-      '298',  // Faroe Islands
-      '299',  // Greenland
-      '350',  // Gibraltar
-      '351',  // Portugal
-      '352',  // Luxembourg
-      '353',  // Ireland
-      '354',  // Iceland
-      '355',  // Albania
-      '356',  // Malta
-      '357',  // Cyprus
-      '358',  // Finland
-      '359',  // Bulgaria
-      '370',  // Lithuania
-      '371',  // Latvia
-      '372',  // Estonia
-      '373',  // Moldova
-      '374',  // Armenia
-      '375',  // Belarus
-      '376',  // Andorra
-      '377',  // Monaco
-      '378',  // San Marino
-      '380',  // Ukraine
-      '381',  // Serbia
-      '382',  // Montenegro
-      '383',  // Kosovo
-      '385',  // Croatia
-      '386',  // Slovenia
-      '387',  // Bosnia and Herzegovina
-      '389',  // North Macedonia
-      '420',  // Czech Republic
-      '421',  // Slovakia
-      '423',  // Liechtenstein
-      '500',  // Falkland Islands
-      '501',  // Belize
-      '502',  // Guatemala
-      '503',  // El Salvador
-      '504',  // Honduras
-      '505',  // Nicaragua
-      '506',  // Costa Rica
-      '507',  // Panama
-      '508',  // Saint Pierre and Miquelon
-      '509',  // Haiti
-      '590',  // Guadeloupe
-      '591',  // Bolivia
-      '592',  // Guyana
-      '593',  // Ecuador
-      '594',  // French Guiana
-      '595',  // Paraguay
-      '596',  // Martinique
-      '597',  // Suriname
-      '598',  // Uruguay
-      '599',  // Netherlands Antilles
-      '670',  // East Timor
-      '672',  // Norfolk Island
-      '673',  // Brunei
-      '674',  // Nauru
-      '675',  // Papua New Guinea
-      '676',  // Tonga
-      '677',  // Solomon Islands
-      '678',  // Vanuatu
-      '679',  // Fiji
-      '680',  // Palau
-      '681',  // Wallis and Futuna
-      '682',  // Cook Islands
-      '683',  // Niue
-      '684',  // American Samoa
-      '685',  // Samoa
-      '686',  // Kiribati
-      '687',  // New Caledonia
-      '688',  // Tuvalu
-      '689',  // French Polynesia
-      '690',  // Tokelau
-      '691',  // Micronesia
-      '692',  // Marshall Islands
-      '850',  // North Korea
-      '852',  // Hong Kong
-      '853',  // Macau
-      '855',  // Cambodia
-      '856',  // Laos
-      '880',  // Bangladesh
-      '886',  // Taiwan
-      '960',  // Maldives
-      '961',  // Lebanon
-      '962',  // Jordan
-      '963',  // Syria
-      '964',  // Iraq
-      '965',  // Kuwait
-      '966',  // Saudi Arabia
-      '967',  // Yemen
-      '968',  // Oman
-      '970',  // Palestine
-      '971',  // United Arab Emirates
-      '972',  // Israel
-      '973',  // Bahrain
-      '974',  // Qatar
-      '975',  // Bhutan
-      '976',  // Mongolia
-      '977',  // Nepal
-      '992',  // Tajikistan
-      '993',  // Turkmenistan
-      '994',  // Azerbaijan
-      '995',  // Georgia
-      '996',  // Kyrgyzstan
-      '998',  // Uzbekistan
-    ];
-
-    return countryCodes.any((code) => phoneNumber.startsWith(code));
   }
 
   /// Launches WhatsApp with formatted phone number and message
@@ -2280,7 +1698,7 @@ class PhoneNumberRules {
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _localNotifications =
-  FlutterLocalNotificationsPlugin();
+      FlutterLocalNotificationsPlugin();
 
   static Future<void> initialize() async {
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -2408,14 +1826,14 @@ class BackgroundService {
         );
 
         await DatabaseService.saveNotification(notification);
-
+        
         await NotificationService.showNotification(
           id: notification.hashCode,
           title: notification.title,
           body: notification.message,
           payload: notification.id,
         );
-
+        
         break;
       }
     }
@@ -2560,7 +1978,7 @@ class StatusUpdateService {
       print('❌ Auto status update error: $e');
     }
   }
-
+// Add this method to the StatusUpdateService class in services.dart
   static void startPeriodicUpdates() {
     startAutoStatusUpdate();
   }
@@ -2568,7 +1986,6 @@ class StatusUpdateService {
   static void stopPeriodicUpdates() {
     stopAutoStatusUpdate();
   }
-
   static Future<void> forceUpdateAllStatuses() async {
     print('🔄 Force updating all client statuses...');
     await _updateAllClientStatuses();

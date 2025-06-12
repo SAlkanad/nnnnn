@@ -6,7 +6,6 @@ import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'dart:ui' as ui;
 import 'models.dart';
 import 'services.dart';
-import 'package:local_auth/local_auth.dart';
 
 class AppConstants {
   static const String appName = 'نظام إدارة تأشيرات العمرة';
@@ -165,77 +164,23 @@ class ValidationUtils {
   }
 
   static String? validateSecondPhone(String? value, PhoneCountry country) {
-    // If empty or null, it's optional - return null (no error)
     if (value == null || value.trim().isEmpty) {
       return null;
     }
 
-    // Clean the input to only digits and common phone symbols
-    final cleanedValue = value.replaceAll(RegExp(r'[^\d\+\-\(\)\s]'), '');
+    final cleanedValue = value.replaceAll(RegExp(r'[^\d]'), '');
 
-    // Remove spaces, dashes, and parentheses for digit counting
-    final digitsOnly = cleanedValue.replaceAll(RegExp(r'[^\d]'), '');
-
-    // Basic validation - must have at least 7 digits and no more than 15
-    if (digitsOnly.length < 7) {
-      return 'رقم الهاتف قصير جداً (7 أرقام على الأقل)';
-    }
-
-    if (digitsOnly.length > 15) {
-      return 'رقم الهاتف طويل جداً (15 رقم كحد أقصى)';
-    }
-
-    // Must contain only valid phone characters
-    if (!RegExp(r'^[\d\+\-\(\)\s]+$').hasMatch(cleanedValue)) {
-      return 'رقم الهاتف يحتوي على رموز غير صالحة';
-    }
-
-    return null; // Valid phone number
-  }
-
-  // Add a new validation function for more flexible international phone numbers
-  static String? validateInternationalPhone(String? value) {
-    // If empty or null, it's optional - return null (no error)
-    if (value == null || value.trim().isEmpty) {
-      return null;
-    }
-
-    // Clean the input
-    final cleanedValue = value.trim();
-
-    // Remove spaces, dashes, and parentheses for digit counting
-    final digitsOnly = cleanedValue.replaceAll(RegExp(r'[^\d]'), '');
-
-    // Basic validation rules for international phone numbers
-    if (digitsOnly.length < 7) {
-      return 'رقم الهاتف قصير جداً';
-    }
-
-    if (digitsOnly.length > 15) {
-      return 'رقم الهاتف طويل جداً';
-    }
-
-    // Allow international format with + at the beginning
-    if (cleanedValue.startsWith('+')) {
-      final withoutPlus = cleanedValue.substring(1);
-      final digitsAfterPlus = withoutPlus.replaceAll(RegExp(r'[^\d]'), '');
-
-      if (digitsAfterPlus.length < 7 || digitsAfterPlus.length > 15) {
-        return 'رقم دولي غير صحيح';
+    if (country == PhoneCountry.saudi) {
+      if (!RegExp(r'^(5)[0-9]{8}$').hasMatch(cleanedValue)) {
+        return 'رقم سعودي غير صحيح (يجب أن يبدأ بـ 5 ويكون 9 أرقام)';
       }
-
-      // Must contain valid characters for international format
-      if (!RegExp(r'^[\d\-\(\)\s]+$').hasMatch(withoutPlus)) {
-        return 'رقم الهاتف يحتوي على رموز غير صالحة';
-      }
-    } else {
-      // Must contain only valid phone characters
-      if (!RegExp(r'^[\d\+\-\(\)\s]+$').hasMatch(cleanedValue)) {
-        return 'رقم الهاتف يحتوي على رموز غير صالحة';
+    } else if (country == PhoneCountry.yemen) {
+      if (!RegExp(r'^(7)[0-9]{8}$').hasMatch(cleanedValue)) {
+        return 'رقم يمني غير صحيح (يجب أن يبدأ بـ 7 ويكون 9 أرقام)';
       }
     }
 
-    return null; // Valid phone number
+    return null;
   }
 
   static String? validateEmail(String? value) {
@@ -1002,26 +947,20 @@ class ClientCard extends StatelessWidget {
                   IconButton(
                     icon: Icon(Icons.message, color: Colors.green),
                     onPressed: () => _sendWhatsApp(context),
-                    tooltip: 'إرسال واتساب - رقم أساسي',
+                    tooltip: 'إرسال واتساب',
                   ),
                   IconButton(
                     icon: Icon(Icons.call, color: Colors.blue),
                     onPressed: () => _makeCall(client.clientPhone),
-                    tooltip: 'اتصال - رقم أساسي',
+                    tooltip: 'اتصال',
                   ),
                 ],
-                if (!client.hasExited && client.secondPhone != null && client.secondPhone!.isNotEmpty) ...[
-                  IconButton(
-                    icon: Icon(Icons.message_outlined, color: Colors.green.shade300),
-                    onPressed: () => _sendInternationalWhatsApp(context),
-                    tooltip: 'إرسال واتساب - رقم إضافي',
-                  ),
+                if (!client.hasExited && client.secondPhone != null && client.secondPhone!.isNotEmpty)
                   IconButton(
                     icon: Icon(Icons.call_outlined, color: Colors.blue.shade300),
-                    onPressed: () => _makeInternationalCall(client.secondPhone!),
-                    tooltip: 'اتصال - رقم إضافي',
+                    onPressed: () => _makeCall(client.secondPhone!),
+                    tooltip: 'اتصال - رقم ثانوي',
                   ),
-                ],
                 Spacer(),
                 if (onEdit != null)
                   IconButton(
@@ -1083,24 +1022,7 @@ class ClientCard extends StatelessWidget {
             children: [
               Icon(Icons.phone_android, size: 16, color: Colors.green),
               SizedBox(width: 4),
-              Text('رقم إضافي: ${client.secondPhone}'),
-              SizedBox(width: 8),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green.shade200),
-                ),
-                child: Text(
-                  'INT', // International
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.green.shade700,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+              Text('رقم ثانوي: ${client.secondPhone}'),
             ],
           ),
         ],
@@ -1136,20 +1058,6 @@ class ClientCard extends StatelessWidget {
     }
   }
 
-  void _sendInternationalWhatsApp(BuildContext context) async {
-    try {
-      await WhatsAppService.sendInternationalMessage(
-        phoneNumber: client.secondPhone!,
-        message: 'عزيزي العميل {clientName}، تنتهي صلاحية تأشيرتك قريباً.',
-        clientName: client.clientName,
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('خطأ في فتح الواتساب: ${e.toString()}')),
-      );
-    }
-  }
-
   void _makeCall(String phoneNumber) async {
     try {
       await WhatsAppService.callClient(
@@ -1157,18 +1065,6 @@ class ClientCard extends StatelessWidget {
         country: client.phoneCountry,
       );
     } catch (e) {
-      // Handle error silently
-    }
-  }
-
-  void _makeInternationalCall(String phoneNumber) async {
-    try {
-      await WhatsAppService.callInternationalNumber(
-        phoneNumber: phoneNumber,
-      );
-    } catch (e) {
-      // Handle error silently or show error message if needed
-      print('Error making international call: $e');
     }
   }
 
@@ -1599,356 +1495,4 @@ class NotificationDropdown extends StatelessWidget {
       },
     );
   }
-}
-
-// Custom Biometric Verification Dialog
-class BiometricVerificationDialog extends StatefulWidget {
-  final List<BiometricType> availableBiometrics;
-  final String? reason;
-
-  const BiometricVerificationDialog({
-    Key? key,
-    required this.availableBiometrics,
-    this.reason,
-  }) : super(key: key);
-
-  @override
-  State<BiometricVerificationDialog> createState() => _BiometricVerificationDialogState();
-}
-
-class _BiometricVerificationDialogState extends State<BiometricVerificationDialog>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _opacityAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-
-    _scaleAnimation = Tween<double>(
-      begin: 0.8,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOutBack,
-    ));
-
-    _opacityAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOut,
-    ));
-
-    _animationController.forward();
-
-    // Auto-start authentication after dialog appears
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _startAuthentication();
-    });
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
-
-  void _startAuthentication() {
-    // Delay to allow dialog to fully appear
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) {
-        Navigator.of(context).pop(true);
-      }
-    });
-  }
-
-  String _getTitle() {
-    if (widget.availableBiometrics.contains(BiometricType.face)) {
-      return 'تحقق من هويتك';
-    } else if (widget.availableBiometrics.contains(BiometricType.fingerprint)) {
-      return 'Verify your identity';
-    } else {
-      return 'تحقق من هويتك';
-    }
-  }
-
-  String _getSubtitle() {
-    if (widget.availableBiometrics.contains(BiometricType.face)) {
-      return 'استخدم وجهك للتحقق من هويتك';
-    } else if (widget.availableBiometrics.contains(BiometricType.fingerprint)) {
-      return 'Use your fingerprint to verify your identity.';
-    } else {
-      return 'استخدم البيانات البيومترية للتحقق من هويتك';
-    }
-  }
-
-  IconData _getBiometricIcon() {
-    if (widget.availableBiometrics.contains(BiometricType.face)) {
-      return Icons.face;
-    } else if (widget.availableBiometrics.contains(BiometricType.fingerprint)) {
-      return Icons.fingerprint;
-    } else {
-      return Icons.security;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animationController,
-      builder: (context, child) {
-        return Opacity(
-          opacity: _opacityAnimation.value,
-          child: Transform.scale(
-            scale: _scaleAnimation.value,
-            child: Dialog(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              child: Container(
-                width: MediaQuery.of(context).size.width * 0.85,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E1E1E), // Dark background like in image
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Header section
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
-                      child: Column(
-                        children: [
-                          // Biometric icon with animation
-                          Container(
-                            width: 80,
-                            height: 80,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.1),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.3),
-                                width: 2,
-                              ),
-                            ),
-                            child: Icon(
-                              _getBiometricIcon(),
-                              size: 40,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          
-                          // Title
-                          Text(
-                            _getTitle(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.5,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 12),
-                          
-                          // Subtitle
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Text(
-                              widget.reason ?? _getSubtitle(),
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.8),
-                                fontSize: 16,
-                                height: 1.4,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    
-                    // Divider
-                    Container(
-                      height: 1,
-                      color: Colors.white.withOpacity(0.2),
-                    ),
-                    
-                    // Cancel button
-                    Container(
-                      width: double.infinity,
-                      child: TextButton(
-                        onPressed: () => Navigator.of(context).pop(false),
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.only(
-                              bottomLeft: Radius.circular(16),
-                              bottomRight: Radius.circular(16),
-                            ),
-                          ),
-                        ),
-                        child: const Text(
-                          'CANCEL',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-// Alternative simpler version that matches the exact style in image 2
-class SystemStyleBiometricDialog extends StatelessWidget {
-  final List<BiometricType> availableBiometrics;
-  final String? reason;
-
-  const SystemStyleBiometricDialog({
-    Key? key,
-    required this.availableBiometrics,
-    this.reason,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      child: Container(
-        width: MediaQuery.of(context).size.width * 0.8,
-        decoration: BoxDecoration(
-          color: const Color(0xFF2D2D2D), // Matches the dark theme in image
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Content area
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
-              child: Column(
-                children: [
-                  // Title
-                  const Text(
-                    'Verify your identity',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // Subtitle
-                  Text(
-                    reason ?? 'Use your fingerprint to verify your identity.',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
-                      fontSize: 14,
-                      height: 1.4,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-            
-            // Divider
-            Container(
-              height: 0.5,
-              color: Colors.white.withOpacity(0.3),
-            ),
-            
-            // Cancel button
-            Container(
-              width: double.infinity,
-              child: TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.only(
-                      bottomLeft: Radius.circular(12),
-                      bottomRight: Radius.circular(12),
-                    ),
-                  ),
-                ),
-                child: const Text(
-                  'CANCEL',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// Helper function to show the biometric dialog
-Future<bool> showBiometricVerificationDialog(
-  BuildContext context, {
-  List<BiometricType>? availableBiometrics,
-  String? reason,
-  bool useSystemStyle = true,
-}) async {
-  final biometrics = availableBiometrics ?? await BiometricService.getAvailableBiometrics();
-  
-  if (biometrics.isEmpty) {
-    throw BiometricException('لا توجد بيانات بيومترية مسجلة');
-  }
-
-  final bool? result = await showDialog<bool>(
-    context: context,
-    barrierDismissible: false,
-    barrierColor: Colors.black.withOpacity(0.7),
-    builder: (BuildContext context) {
-      if (useSystemStyle) {
-        return SystemStyleBiometricDialog(
-          availableBiometrics: biometrics,
-          reason: reason,
-        );
-      } else {
-        return BiometricVerificationDialog(
-          availableBiometrics: biometrics,
-          reason: reason,
-        );
-      }
-    },
-  );
-
-  return result ?? false;
 }
