@@ -20,6 +20,10 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
+import 'package:local_auth/local_auth.dart';
+import 'package:local_auth_android/local_auth_android.dart';
+import 'package:local_auth_darwin/local_auth_darwin.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class BiometricService {
   static final LocalAuthentication _localAuth = LocalAuthentication();
