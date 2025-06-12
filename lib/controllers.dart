@@ -124,6 +124,149 @@ class AuthController extends ChangeNotifier {
   Future<Map<String, String?>> getSavedCredentials() async {
     return await AuthService.getSavedCredentials();
   }
+
+  /// Enhanced biometric login with better error handling
+  Future<bool> loginWithBiometricEnhanced(String username) async {
+    if (!_biometricAvailable) return false;
+
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      // Validate biometric state first
+      final biometricState = await BiometricService.validateBiometricState(username);
+      
+      switch (biometricState) {
+        case BiometricAuthState.notAvailable:
+          throw Exception('المصادقة البيومترية غير متاحة على هذا الجهاز');
+        case BiometricAuthState.disabled:
+          throw Exception('المصادقة البيومترية معطلة. يرجى تفعيلها من الإعدادات');
+        case BiometricAuthState.enrollmentChanged:
+          throw Exception('تم تغيير إعدادات البصمة. يرجى إعادة تفعيل المصادقة البيومترية');
+        case BiometricAuthState.error:
+          throw Exception('خطأ في نظام المصادقة البيومترية');
+        case BiometricAuthState.ready:
+          break; // Continue with authentication
+      }
+
+      // Proceed with authentication
+      final authenticated = await BiometricService.authenticateWithBiometricsEnhanced(
+        localizedReason: 'يرجى التحقق من هويتك لتسجيل الدخول',
+        userId: username,
+      );
+
+      if (authenticated) {
+        _currentUser = await AuthService.loginWithBiometric(username);
+        if (_currentUser != null) {
+          _biometricEnabled = true;
+          _isLoading = false;
+          notifyListeners();
+          return true;
+        }
+      }
+
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _isLoading = false;
+      notifyListeners();
+      
+      // Handle enrollment changes
+      if (e.toString().contains('تم تغيير إعدادات البصمة')) {
+        await BiometricService.resetBiometricData(username);
+        _biometricEnabled = false;
+        notifyListeners();
+      }
+      
+      rethrow;
+    }
+  }
+
+  /// Enhanced biometric enable with validation
+  Future<void> enableBiometricEnhanced() async {
+    if (_currentUser == null) {
+      throw Exception('يجب تسجيل الدخول أولاً');
+    }
+
+    try {
+      final biometricState = await BiometricService.validateBiometricState(_currentUser!.id);
+      
+      if (biometricState != BiometricAuthState.ready && biometricState != BiometricAuthState.disabled) {
+        throw Exception(biometricState.description);
+      }
+
+      // Test authentication before enabling
+      final authenticated = await BiometricService.authenticateWithBiometricsEnhanced(
+        localizedReason: 'يرجى التحقق من هويتك لتفعيل المصادقة البيومترية',
+        userId: _currentUser!.id,
+      );
+
+      if (authenticated) {
+        await BiometricService.enableBiometric(_currentUser!.id);
+        _biometricEnabled = true;
+        notifyListeners();
+      } else {
+        throw Exception('فشل في التحقق من الهوية');
+      }
+    } catch (e) {
+      throw Exception('فشل في تفعيل المصادقة البيومترية: ${BiometricService.getBiometricErrorMessage(e)}');
+    }
+  }
+
+  /// Enhanced biometric availability check
+  Future<bool> checkBiometricAvailabilityEnhanced() async {
+    try {
+      _biometricAvailable = await BiometricService.isBiometricAvailable();
+      
+      if (_currentUser != null) {
+        final biometricState = await BiometricService.validateBiometricState(_currentUser!.id);
+        
+        // If enrollment changed, disable biometric
+        if (biometricState == BiometricAuthState.enrollmentChanged) {
+          await BiometricService.resetBiometricData(_currentUser!.id);
+          _biometricEnabled = false;
+          print('Biometric enrollment changed, disabled for user: ${_currentUser!.id}');
+        }
+      }
+      
+      notifyListeners();
+      return _biometricAvailable;
+    } catch (e) {
+      print('Error checking biometric availability: $e');
+      _biometricAvailable = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Get user-friendly biometric status message
+  String getBiometricStatusMessage() {
+    if (_currentUser == null) {
+      return 'يجب تسجيل الدخول أولاً';
+    }
+
+    if (!_biometricAvailable) {
+      return 'المصادقة البيومترية غير متاحة على هذا الجهاز';
+    }
+
+    if (_biometricEnabled) {
+      return 'المصادقة البيومترية مفعلة ومتاحة';
+    }
+
+    return 'المصادقة البيومترية متاحة ولكن غير مفعلة';
+  }
+
+  /// Check if biometric enrollment has changed
+  Future<bool> hasBiometricEnrollmentChanged() async {
+    if (_currentUser == null) return false;
+    
+    try {
+      return await BiometricService.checkBiometricEnrollmentChanged(_currentUser!.id);
+    } catch (e) {
+      return false;
+    }
+  }
 }
 
 class ClientController extends ChangeNotifier {

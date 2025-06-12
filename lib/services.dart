@@ -64,17 +64,86 @@ class BiometricService {
     }
   }
 
-  /// Authenticate with biometrics using the latest API
-  static Future<bool> authenticateWithBiometrics({
+  /// Provides user-friendly error messages for biometric authentication failures
+  static String getBiometricErrorMessage(dynamic error) {
+    final errorString = error.toString().toLowerCase();
+    
+    if (errorString.contains('lockedout')) {
+      return 'تم قفل المصادقة البيومترية مؤقتاً. حاول لاحقاً';
+    } else if (errorString.contains('notavailable')) {
+      return 'المصادقة البيومترية غير متاحة';
+    } else if (errorString.contains('notenrolled')) {
+      return 'لم يتم تسجيل أي بصمات. يرجى إعداد البصمة في إعدادات الجهاز';
+    } else if (errorString.contains('canceled')) {
+      return 'تم إلغاء المصادقة';
+    } else if (errorString.contains('userauthentication')) {
+      return 'فشل في التحقق من الهوية';
+    } else if (errorString.contains('toomanytries')) {
+      return 'تم تجاوز عدد المحاولات المسموح به';
+    } else if (errorString.contains('systemcancel')) {
+      return 'تم إلغاء المصادقة بواسطة النظام';
+    } else if (errorString.contains('invalidcontext')) {
+      return 'سياق المصادقة غير صالح';
+    } else if (errorString.contains('notinteractive')) {
+      return 'المصادقة غير تفاعلية';
+    }
+    
+    return 'خطأ في المصادقة البيومترية';
+  }
+
+  /// Checks if biometric enrollment has changed for a specific user
+  static Future<bool> checkBiometricEnrollmentChanged(String userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final availableBiometrics = await getAvailableBiometrics();
+      final lastKnownBiometrics = prefs.getStringList('last_biometrics_$userId') ?? [];
+      
+      final currentBiometrics = availableBiometrics.map((e) => e.toString()).toList();
+      
+      // Check if biometric enrollment has changed
+      if (!_listEquals(lastKnownBiometrics, currentBiometrics)) {
+        await prefs.setStringList('last_biometrics_$userId', currentBiometrics);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print('Error checking biometric enrollment: $e');
+      return false;
+    }
+  }
+
+  /// Helper method to compare two lists for equality
+  static bool _listEquals<T>(List<T>? a, List<T>? b) {
+    if (a == null) return b == null;
+    if (b == null || a.length != b.length) return false;
+    if (identical(a, b)) return true;
+    for (int index = 0; index < a.length; index += 1) {
+      if (a[index] != b[index]) return false;
+    }
+    return true;
+  }
+
+  /// Enhanced authentication with better error handling
+  static Future<bool> authenticateWithBiometricsEnhanced({
     String localizedReason = 'يرجى المصادقة للمتابعة',
     bool biometricOnly = false,
     bool stickyAuth = true,
+    String? userId,
   }) async {
     try {
+      // Check if enrollment changed
+      if (userId != null) {
+        final enrollmentChanged = await checkBiometricEnrollmentChanged(userId);
+        if (enrollmentChanged) {
+          print('Biometric enrollment changed for user: $userId');
+          // Optionally disable biometric if enrollment changed
+          // await disableBiometric(userId);
+        }
+      }
+
       final isAvailable = await isBiometricAvailable();
       if (!isAvailable) {
-        print('Biometric authentication not available');
-        return false;
+        throw Exception('المصادقة البيومترية غير متاحة');
       }
 
       final bool didAuthenticate = await _localAuth.authenticate(
@@ -87,6 +156,9 @@ class BiometricService {
             deviceCredentialsSetupDescription: 'يرجى إعداد رمز الجهاز',
             goToSettingsButton: 'الإعدادات',
             goToSettingsDescription: 'يرجى إعداد المصادقة البيومترية',
+            biometricHint: 'تحقق من الهوية',
+            biometricNotRecognized: 'لم يتم التعرف على البصمة، حاول مرة أخرى',
+            biometricSuccess: 'تم التحقق من الهوية بنجاح',
           ),
           IOSAuthMessages(
             cancelButton: 'إلغاء',
@@ -104,8 +176,45 @@ class BiometricService {
 
       return didAuthenticate;
     } catch (e) {
-      print('Error during biometric authentication: $e');
-      return false;
+      print('Enhanced biometric authentication error: $e');
+      throw Exception(getBiometricErrorMessage(e));
+    }
+  }
+
+  /// Validates biometric authentication state for a user
+  static Future<BiometricAuthState> validateBiometricState(String userId) async {
+    try {
+      final isAvailable = await isBiometricAvailable();
+      if (!isAvailable) {
+        return BiometricAuthState.notAvailable;
+      }
+
+      final isEnabled = await isBiometricEnabled(userId);
+      if (!isEnabled) {
+        return BiometricAuthState.disabled;
+      }
+
+      final enrollmentChanged = await checkBiometricEnrollmentChanged(userId);
+      if (enrollmentChanged) {
+        return BiometricAuthState.enrollmentChanged;
+      }
+
+      return BiometricAuthState.ready;
+    } catch (e) {
+      return BiometricAuthState.error;
+    }
+  }
+
+  /// Resets biometric data for a user (useful when enrollment changes)
+  static Future<void> resetBiometricData(String userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('biometric_enabled_$userId');
+      await prefs.remove('last_biometrics_$userId');
+      print('Biometric data reset for user: $userId');
+    } catch (e) {
+      print('Error resetting biometric data: $e');
+      throw Exception('فشل في إعادة تعيين بيانات البصمة');
     }
   }
 
@@ -166,6 +275,34 @@ class BiometricService {
   }
 }
 
+/// Enum for biometric authentication states
+enum BiometricAuthState {
+  ready,
+  notAvailable,
+  disabled,
+  enrollmentChanged,
+  error,
+}
+
+extension BiometricAuthStateExtension on BiometricAuthState {
+  String get description {
+    switch (this) {
+      case BiometricAuthState.ready:
+        return 'المصادقة البيومترية جاهزة';
+      case BiometricAuthState.notAvailable:
+        return 'المصادقة البيومترية غير متاحة';
+      case BiometricAuthState.disabled:
+        return 'المصادقة البيومترية معطلة';
+      case BiometricAuthState.enrollmentChanged:
+        return 'تم تغيير تسجيل البصمة';
+      case BiometricAuthState.error:
+        return 'خطأ في المصادقة البيومترية';
+    }
+  }
+
+  bool get isUsable => this == BiometricAuthState.ready;
+}
+
 class AuthService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -210,7 +347,7 @@ class AuthService {
 
   static Future<UserModel?> loginWithBiometric(String username) async {
     try {
-      if (await BiometricService.authenticateWithBiometrics()) {
+      if (await BiometricService.authenticateWithBiometricsEnhanced()) {
         final credentials = await getSavedCredentials();
         if (credentials['username'] == username && credentials['password'] != null) {
           return await login(username, credentials['password']!, useBiometric: true);

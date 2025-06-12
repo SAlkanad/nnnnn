@@ -112,6 +112,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   SizedBox(height: 24),
 
+                  _buildBiometricStatusWidget(),
+
                   SizedBox(
                     width: double.infinity,
                     height: 50,
@@ -132,6 +134,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         onPressed: authController.isLoading ? null : _handleBiometricLogin,
                         icon: Icon(Icons.fingerprint),
                         label: Text('تسجيل الدخول ببصمة الإصبع'),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(
+                            color: authController.biometricEnabled ? Colors.green : Colors.orange,
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -182,10 +189,19 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _handleBiometricLogin() async {
     try {
       final authController = Provider.of<AuthController>(context, listen: false);
-      final success = await authController.loginWithBiometric(_usernameController.text);
+      
+      // Enhanced biometric login
+      final success = await authController.loginWithBiometricEnhanced(_usernameController.text);
 
       if (success) {
         final user = authController.currentUser!;
+        
+        if (user.isFrozen) {
+          _showFreezeDialog(user.freezeReason ?? 'تم تجميد الحساب');
+          return;
+        }
+
+        // Navigate based on user role
         switch (user.role) {
           case UserRole.admin:
             Navigator.pushReplacementNamed(context, '/admin_dashboard');
@@ -196,15 +212,158 @@ class _LoginScreenState extends State<LoginScreen> {
             break;
         }
       } else {
+        _showBiometricErrorDialog('فشل في المصادقة ببصمة الإصبع');
+      }
+    } catch (e) {
+      _showBiometricErrorDialog(e.toString());
+    }
+  }
+
+  void _showBiometricErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.fingerprint, color: Colors.red),
+            SizedBox(width: 8),
+            Text('خطأ في المصادقة البيومترية'),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          if (message.contains('تم تغيير إعدادات البصمة')) ...[
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _showBiometricResetDialog();
+              },
+              child: Text('إعادة التفعيل'),
+            ),
+          ],
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('موافق'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBiometricResetDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('إعادة تفعيل البصمة'),
+        content: Text(
+          'تم اكتشاف تغيير في إعدادات البصمة. هل تريد إعادة تفعيل المصادقة البيومترية؟'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('لاحقاً'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _setupBiometricAgain();
+            },
+            child: Text('إعادة التفعيل'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _setupBiometricAgain() async {
+    try {
+      final authController = Provider.of<AuthController>(context, listen: false);
+      
+      // First, login with username/password
+      if (_usernameController.text.isNotEmpty && _passwordController.text.isNotEmpty) {
+        final success = await authController.login(
+          _usernameController.text,
+          _passwordController.text,
+        );
+        
+        if (success) {
+          // Now try to enable biometric
+          await authController.enableBiometricEnhanced();
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('تم إعادة تفعيل المصادقة البيومترية بنجاح'),
+                ],
+              ),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('فشل في المصادقة ببصمة الإصبع')),
+          SnackBar(
+            content: Text('يرجى إدخال اسم المستخدم وكلمة المرور أولاً'),
+            backgroundColor: Colors.orange,
+          ),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('خطأ في المصادقة ببصمة الإصبع')),
+        SnackBar(
+          content: Text('فشل في إعادة تفعيل البصمة: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
+  }
+
+  // Enhanced biometric availability check
+  Future<void> _checkBiometricAvailability() async {
+    final authController = Provider.of<AuthController>(context, listen: false);
+    await authController.checkBiometricAvailabilityEnhanced();
+  }
+
+  // Show biometric status in the UI
+  Widget _buildBiometricStatusWidget() {
+    return Consumer<AuthController>(
+      builder: (context, authController, child) {
+        if (!authController.biometricAvailable) {
+          return SizedBox.shrink();
+        }
+
+        final statusMessage = authController.getBiometricStatusMessage();
+        final statusColor = authController.biometricEnabled ? Colors.green : Colors.orange;
+
+        return Container(
+          margin: EdgeInsets.symmetric(vertical: 8),
+          padding: EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: statusColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: statusColor.withOpacity(0.3)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.fingerprint, color: statusColor, size: 20),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  statusMessage,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   void _showFreezeDialog(String reason) {
