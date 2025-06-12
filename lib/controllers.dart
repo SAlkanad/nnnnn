@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
 import 'models.dart';
 import 'services.dart';
 import 'core.dart';
