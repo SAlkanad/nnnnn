@@ -1110,11 +1110,13 @@ class ClientCard extends StatelessWidget {
 class ImageViewer extends StatefulWidget {
   final List<String> imageUrls;
   final int initialIndex;
+  final String? clientName;
 
   const ImageViewer({
     Key? key,
     required this.imageUrls,
     this.initialIndex = 0,
+    this.clientName,
   }) : super(key: key);
 
   @override

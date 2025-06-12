@@ -10,7 +10,7 @@ import 'routes.dart';
 import 'models.dart';
 import 'core.dart';
 import 'services.dart';
-import 'app_initialization_service.dart'
+import 'app_initialization_service.dart';
 import 'error_handler.dart';
 import 'network_utils.dart';
 
@@ -247,6 +247,8 @@ class NotFoundScreen extends StatelessWidget {
     );
   }
 }
+
+// Update the AppLifecycleObserver class in lib/main.dart
 
 class AppLifecycleObserver extends WidgetsBindingObserver {
   @override

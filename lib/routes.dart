@@ -1,6 +1,7 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:passengers/services.dart';
-import 'package:passengers/settings_screens.dart';
+import 'services.dart';
+import 'settings_screens.dart';
 import 'screens.dart';
 import 'models.dart';
 import 'core.dart';
