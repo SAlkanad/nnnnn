@@ -597,7 +597,7 @@ class ClientModel {
     );
   }
 
-  get fullClientPhone => null;
+  String get fullClientPhone => fullPrimaryPhone;
 
   ClientModel copyWith({
     String? id,

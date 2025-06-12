@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:flutter/cupertino.dart' show BuildContext;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -231,6 +230,163 @@ class AuthService {
     }
   }
 }
+
+class ImageService {
+  static final FirebaseStorage _storage = FirebaseStorage.instance;
+
+  // Delegate to ImageServiceExtensions for image picking
+  static Future<List<File>?> pickMultipleImages({
+    int maxImages = 10,
+    int imageQuality = 80,
+    double? maxWidth,
+    double? maxHeight,
+  }) => ImageServiceExtensions.pickMultipleImages(
+    maxImages: maxImages,
+    imageQuality: imageQuality,
+    maxWidth: maxWidth,
+    maxHeight: maxHeight,
+  );
+
+  static Future<File?> pickSingleImage({
+    ImageSource source = ImageSource.gallery,
+    int imageQuality = 80,
+    double? maxWidth,
+    double? maxHeight,
+  }) => ImageServiceExtensions.pickSingleImage(
+    source: source,
+    imageQuality: imageQuality,
+    maxWidth: maxWidth,
+    maxHeight: maxHeight,
+  );
+
+  static Future<File?> pickImageWithSourceDialog(BuildContext context) =>
+      ImageServiceExtensions.pickImageWithSourceDialog(context);
+
+  // Core Firebase Storage operations
+  static Future<List<String>> uploadImages(List<File> imageFiles, String clientId) async {
+    List<String> urls = [];
+
+    for (int i = 0; i < imageFiles.length; i++) {
+      try {
+        final compressedFile = await _compressImage(imageFiles[i]);
+        final fileName = '${clientId}_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+        final ref = _storage
+            .ref()
+            .child(FirebaseConstants.imagesStorage)
+            .child(clientId)
+            .child(fileName);
+
+        final uploadTask = ref.putFile(compressedFile);
+        final snapshot = await uploadTask;
+
+        final downloadUrl = await snapshot.ref.getDownloadURL();
+        urls.add(downloadUrl);
+
+        try {
+          await compressedFile.delete();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      } catch (e) {
+        throw Exception('خطأ في رفع الصورة: ${e.toString()}');
+      }
+    }
+
+    return urls;
+  }
+
+  static Future<void> deleteImage(String imageUrl) async {
+    try {
+      final ref = _storage.refFromURL(imageUrl);
+      await ref.delete();
+    } catch (e) {
+      throw Exception('خطأ في حذف الصورة: ${e.toString()}');
+    }
+  }
+
+  static Future<void> downloadImage(String imageUrl) async {
+    try {
+      final uri = Uri.parse(imageUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        throw Exception('لا يمكن فتح الصورة');
+      }
+    } catch (e) {
+      throw Exception('خطأ في تحميل الصورة: ${e.toString()}');
+    }
+  }
+
+  static Future<void> openImageInBrowser(String imageUrl) async {
+    try {
+      final uri = Uri.parse(imageUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        throw Exception('لا يمكن فتح الصورة في المتصفح');
+      }
+    } catch (e) {
+      throw Exception('خطأ في فتح الصورة: ${e.toString()}');
+    }
+  }
+
+  // Image compression helper
+  static Future<File> _compressImage(File file) async {
+    try {
+      final String targetPath = '${file.parent.path}/compressed_${file.uri.pathSegments.last}';
+
+      final XFile? result = await FlutterImageCompress.compressAndGetFile(
+        file.absolute.path,
+        targetPath,
+        quality: 70,
+        minWidth: 1024,
+        minHeight: 1024,
+      );
+
+      if (result != null) {
+        return File(result.path);
+      } else {
+        return file;
+      }
+    } catch (e) {
+      return file;
+    }
+  }
+
+  // Batch operations for client management
+  static Future<void> deleteClientImages(List<String> imageUrls) async {
+    for (String imageUrl in imageUrls) {
+      try {
+        await deleteImage(imageUrl);
+      } catch (e) {
+        // Continue deleting other images even if one fails
+        print('Failed to delete image: $imageUrl, Error: $e');
+      }
+    }
+  }
+
+  // Utility method for getting image file size
+  static Future<int> getImageFileSize(File imageFile) async {
+    try {
+      return await imageFile.length();
+    } catch (e) {
+      throw Exception('خطأ في حساب حجم الصورة: ${e.toString()}');
+    }
+  }
+
+  // Validate image before upload
+  static Future<bool> validateImage(File imageFile, {int maxSizeInMB = 10}) async {
+    try {
+      final fileSize = await getImageFileSize(imageFile);
+      final maxSizeInBytes = maxSizeInMB * 1024 * 1024;
+
+      return fileSize <= maxSizeInBytes;
+    } catch (e) {
+      return false;
+    }
+  }
+}
+
 class ImageServiceExtensions {
   static final ImagePicker _picker = ImagePicker();
 
@@ -1251,93 +1407,6 @@ class DatabaseService {
   }
 }
 
-class ImageService {
-  static final FirebaseStorage _storage = FirebaseStorage.instance;
-
-  static Future<List<String>> uploadImages(List<File> imageFiles, String clientId) async {
-    List<String> urls = [];
-
-    for (int i = 0; i < imageFiles.length; i++) {
-      try {
-        final compressedFile = await _compressImage(imageFiles[i]);
-        final fileName = '${clientId}_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-        final ref = _storage
-            .ref()
-            .child(FirebaseConstants.imagesStorage)
-            .child(fileName);
-
-        final uploadTask = ref.putFile(compressedFile);
-        final snapshot = await uploadTask;
-
-        final downloadUrl = await snapshot.ref.getDownloadURL();
-        urls.add(downloadUrl);
-
-        try {
-          await compressedFile.delete();
-        } catch (e) {
-        }
-      } catch (e) {
-        print('Error uploading image: $e');
-      }
-    }
-
-    return urls;
-  }
-
-  static Future<File> _compressImage(File file) async {
-    try {
-      final String targetPath = '${file.parent.path}/compressed_${file.uri.pathSegments.last}';
-
-      final XFile? result = await FlutterImageCompress.compressAndGetFile(
-        file.absolute.path,
-        targetPath,
-        quality: 70,
-        minWidth: 1024,
-        minHeight: 1024,
-      );
-
-      if (result != null) {
-        return File(result.path);
-      } else {
-        return file;
-      }
-    } catch (e) {
-      return file;
-    }
-  }
-
-  static Future<void> deleteImage(String imageUrl) async {
-    try {
-      final ref = _storage.refFromURL(imageUrl);
-      await ref.delete();
-    } catch (e) {
-      print('Error deleting image: $e');
-    }
-  }
-
-  static Future<void> downloadImage(String imageUrl) async {
-    try {
-      final uri = Uri.parse(imageUrl);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } catch (e) {
-      print('Error downloading image: $e');
-    }
-  }
-
-  static Future<void> openImageInBrowser(String imageUrl) async {
-    try {
-      final uri = Uri.parse(imageUrl);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } catch (e) {
-      print('Error opening image: $e');
-    }
-  }
-}
-
 class WhatsAppService {
   // Constants for phone number validation
   static const Map<PhoneCountry, PhoneNumberRules> _phoneRules = {
@@ -1909,7 +1978,14 @@ class StatusUpdateService {
       print('❌ Auto status update error: $e');
     }
   }
+// Add this method to the StatusUpdateService class in services.dart
+  static void startPeriodicUpdates() {
+    startAutoStatusUpdate();
+  }
 
+  static void stopPeriodicUpdates() {
+    stopAutoStatusUpdate();
+  }
   static Future<void> forceUpdateAllStatuses() async {
     print('🔄 Force updating all client statuses...');
     await _updateAllClientStatuses();

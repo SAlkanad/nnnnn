@@ -15,7 +15,7 @@ import 'models.dart';
 
 class AppInitializationService {
   static final FlutterLocalNotificationsPlugin _localNotifications =
-      FlutterLocalNotificationsPlugin();
+  FlutterLocalNotificationsPlugin();
 
   static Future<void> initialize() async {
     try {
@@ -103,7 +103,7 @@ class AppInitializationService {
     try {
       final isAvailable = await BiometricService.isBiometricAvailable();
       final availableTypes = await BiometricService.getAvailableBiometrics();
-      
+
       print('✅ Biometrics initialized - Available: $isAvailable, Types: $availableTypes');
     } catch (e) {
       print('⚠️ Biometrics initialization failed: $e');
@@ -124,13 +124,13 @@ class AppInitializationService {
     try {
       CacheManager.clear();
       CacheManager.clearExpired();
-      
+
       final prefs = await SharedPreferences.getInstance();
       final keys = prefs.getKeys().where((key) => key.startsWith('cache_')).toList();
       for (final key in keys) {
         await prefs.remove(key);
       }
-      
+
       print('✅ Cache initialized and cleared');
     } catch (e) {
       print('⚠️ Cache initialization warning: $e');
@@ -138,108 +138,22 @@ class AppInitializationService {
   }
 
   static void _startBackgroundServices() {
-    StatusUpdateService.startPeriodicUpdates();
+    StatusUpdateService.startAutoStatusUpdate();
     NotificationService.startScheduledNotifications();
-    
+
     print('✅ Background services started');
   }
 
   static Future<void> dispose() async {
     try {
-      StatusUpdateService.stopPeriodicUpdates();
+      StatusUpdateService.stopAutoStatusUpdate();
       NotificationService.stopScheduledNotifications();
       NetworkUtils.dispose();
       CacheManager.clear();
-      
+
       print('✅ App cleanup completed');
     } catch (e) {
       print('⚠️ App cleanup warning: $e');
-    }
-  }
-}
-
-class StatusUpdateService {
-  static Timer? _updateTimer;
-  static bool _isRunning = false;
-
-  static void startPeriodicUpdates() {
-    if (_isRunning) return;
-    
-    _isRunning = true;
-    _updateTimer = Timer.periodic(Duration(hours: 1), (timer) async {
-      try {
-        await forceUpdateAllStatuses();
-        CacheManager.clearExpired();
-      } catch (e) {
-        print('❌ Periodic status update failed: $e');
-      }
-    });
-    
-    print('✅ Periodic status updates started');
-  }
-
-  static void stopPeriodicUpdates() {
-    _updateTimer?.cancel();
-    _updateTimer = null;
-    _isRunning = false;
-    
-    print('✅ Periodic status updates stopped');
-  }
-
-  static Future<void> forceUpdateAllStatuses() async {
-    try {
-      CacheManager.clear('clients');
-      CacheManager.clear('users');
-      CacheManager.clear('notifications');
-      
-      final clients = await DatabaseService.getAllClients();
-      final now = DateTime.now();
-      
-      for (final client in clients) {
-        final daysSinceEntry = now.difference(client.entryDate).inDays;
-        final daysRemaining = _calculateDaysRemaining(client.visaType, daysSinceEntry);
-        final newStatus = _calculateStatus(daysRemaining);
-        
-        if (client.status != newStatus || client.daysRemaining != daysRemaining) {
-          await DatabaseService.updateClientStatus(client.id, newStatus);
-        }
-      }
-      
-      print('✅ All client statuses updated');
-    } catch (e) {
-      print('❌ Status update failed: $e');
-      throw e;
-    }
-  }
-
-  static int _calculateDaysRemaining(VisaType visaType, int daysSinceEntry) {
-    int totalDays;
-    switch (visaType) {
-      case VisaType.umrah:
-        totalDays = 30;
-        break;
-      case VisaType.hajj:
-        totalDays = 45;
-        break;
-      case VisaType.visit:
-        totalDays = 90;
-        break;
-      case VisaType.work:
-        totalDays = 365;
-        break;
-    }
-    return totalDays - daysSinceEntry;
-  }
-
-  static ClientStatus _calculateStatus(int daysRemaining) {
-    if (daysRemaining <= 0) {
-      return ClientStatus.white;
-    } else if (daysRemaining <= 1) {
-      return ClientStatus.red;
-    } else if (daysRemaining <= 30) {
-      return ClientStatus.yellow;
-    } else {
-      return ClientStatus.green;
     }
   }
 }
@@ -248,11 +162,9 @@ class NotificationService {
   static Timer? _notificationTimer;
   static bool _isRunning = false;
 
-  static get CommunicationService => null;
-
   static void startScheduledNotifications() {
     if (_isRunning) return;
-    
+
     _isRunning = true;
     _notificationTimer = Timer.periodic(Duration(minutes: 30), (timer) async {
       try {
@@ -261,7 +173,7 @@ class NotificationService {
         print('❌ Scheduled notifications failed: $e');
       }
     });
-    
+
     print('✅ Scheduled notifications started');
   }
 
@@ -269,7 +181,7 @@ class NotificationService {
     _notificationTimer?.cancel();
     _notificationTimer = null;
     _isRunning = false;
-    
+
     print('✅ Scheduled notifications stopped');
   }
 
@@ -278,13 +190,13 @@ class NotificationService {
       final clients = await DatabaseService.getAllClients();
       final settings = await DatabaseService.getAdminSettings();
       final notificationSettings = NotificationSettings.fromMap(settings['notificationSettings'] ?? {});
-      
+
       for (final client in clients) {
         if (client.hasExited) continue;
-        
+
         await _checkClientNotifications(client, notificationSettings);
       }
-      
+
       print('✅ Scheduled notifications processed');
     } catch (e) {
       print('❌ Notification processing failed: $e');
@@ -292,9 +204,9 @@ class NotificationService {
   }
 
   static Future<void> _checkClientNotifications(
-    ClientModel client, 
-    NotificationSettings settings
-  ) async {
+      ClientModel client,
+      NotificationSettings settings
+      ) async {
     for (final tier in settings.clientTiers) {
       if (client.daysRemaining <= tier.days && client.daysRemaining > 0) {
         final notification = NotificationModel(
@@ -308,7 +220,7 @@ class NotificationService {
           priority: _getPriority(client.daysRemaining),
           createdAt: DateTime.now(),
         );
-        
+
         await DatabaseService.saveNotification(notification);
         await _sendWhatsAppMessage(client, tier.message);
       }
@@ -326,10 +238,12 @@ class NotificationService {
       final formattedMessage = message
           .replaceAll('{clientName}', client.clientName)
           .replaceAll('{daysRemaining}', client.daysRemaining.toString());
-      
-      await CommunicationService.sendWhatsAppMessage(
-        client.fullClientPhone,
-        formattedMessage,
+
+      await WhatsAppService.sendClientMessage(
+        phoneNumber: client.clientPhone,
+        country: client.phoneCountry,
+        message: formattedMessage,
+        clientName: client.clientName,
       );
     } catch (e) {
       print('⚠️ WhatsApp message failed for ${client.clientName}: $e');
