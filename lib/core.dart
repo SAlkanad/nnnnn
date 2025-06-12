@@ -163,23 +163,162 @@ class ValidationUtils {
     return null;
   }
 
-  static String? validateSecondPhone(String? value, PhoneCountry country) {
+  /// Validates secondary phone number - allows any international format
+  static String? validateSecondPhone(String? value) {
     if (value == null || value.trim().isEmpty) {
-      return null;
+      return null; // Optional field, so null/empty is valid
     }
 
-    final cleanedValue = value.replaceAll(RegExp(r'[^\d]'), '');
-
-    if (country == PhoneCountry.saudi) {
-      if (!RegExp(r'^(5)[0-9]{8}$').hasMatch(cleanedValue)) {
-        return 'رقم سعودي غير صحيح (يجب أن يبدأ بـ 5 ويكون 9 أرقام)';
-      }
-    } else if (country == PhoneCountry.yemen) {
-      if (!RegExp(r'^(7)[0-9]{8}$').hasMatch(cleanedValue)) {
-        return 'رقم يمني غير صحيح (يجب أن يبدأ بـ 7 ويكون 9 أرقام)';
-      }
+    final cleanedValue = value.trim();
+    
+    // Check if it's a valid international phone number format
+    if (!_isValidInternationalPhone(cleanedValue)) {
+      return 'رقم الهاتف الثانوي غير صحيح';
     }
 
+    return null;
+  }
+
+  /// Validates if the phone number follows a reasonable international format
+  static bool _isValidInternationalPhone(String phone) {
+    // Remove all non-digit characters except +
+    final cleaned = phone.replaceAll(RegExp(r'[^\d+]'), '');
+    
+    // Must have at least 7 digits and at most 15 digits (ITU-T E.164 standard)
+    final digitCount = cleaned.replaceAll('+', '').length;
+    if (digitCount < 7 || digitCount > 15) {
+      return false;
+    }
+
+    // Check various international formats
+    return _matchesInternationalFormat(cleaned);
+  }
+
+  /// Checks if phone matches common international formats
+  static bool _matchesInternationalFormat(String phone) {
+    // List of common international phone patterns
+    final patterns = [
+      // With country code starting with +
+      r'^\+[1-9]\d{6,14}$',
+      // Saudi Arabia: +966 5XXXXXXXX or 966 5XXXXXXXX or 05XXXXXXXX
+      r'^(\+?966|0)?5\d{8}$',
+      // Yemen: +967 7XXXXXXXX or 967 7XXXXXXXX or 07XXXXXXXX  
+      r'^(\+?967|0)?7\d{8}$',
+      // Egypt: +20 1XXXXXXXXX
+      r'^(\+?20)?1\d{9}$',
+      // UAE: +971 5XXXXXXXX
+      r'^(\+?971)?5\d{8}$',
+      // Kuwait: +965 XXXXXXXX
+      r'^(\+?965)?\d{8}$',
+      // Bahrain: +973 XXXXXXXX
+      r'^(\+?973)?\d{8}$',
+      // Qatar: +974 XXXXXXXX
+      r'^(\+?974)?\d{8}$',
+      // Jordan: +962 7XXXXXXXX
+      r'^(\+?962)?7\d{8}$',
+      // Lebanon: +961 XXXXXXXX
+      r'^(\+?961)?\d{8}$',
+      // Turkey: +90 5XXXXXXXXX
+      r'^(\+?90)?5\d{9}$',
+      // Iran: +98 9XXXXXXXXX
+      r'^(\+?98)?9\d{9}$',
+      // Pakistan: +92 3XXXXXXXXX
+      r'^(\+?92)?3\d{9}$',
+      // India: +91 XXXXXXXXXX
+      r'^(\+?91)?\d{10}$',
+      // Bangladesh: +880 1XXXXXXXXX
+      r'^(\+?880)?1\d{9}$',
+      // Indonesia: +62 8XXXXXXXXXX
+      r'^(\+?62)?8\d{8,11}$',
+      // Malaysia: +60 1XXXXXXXXX
+      r'^(\+?60)?1\d{8,9}$',
+      // US/Canada: +1 XXXXXXXXXX
+      r'^(\+?1)?\d{10}$',
+      // UK: +44 7XXXXXXXXX
+      r'^(\+?44)?7\d{9}$',
+      // Generic international format
+      r'^\+?[1-9]\d{6,14}$',
+    ];
+
+    return patterns.any((pattern) => RegExp(pattern).hasMatch(phone));
+  }
+
+  /// Formats international phone number for display
+  static String formatInternationalPhone(String phone) {
+    if (phone.isEmpty) return '';
+    
+    // Clean the phone number
+    final cleaned = phone.replaceAll(RegExp(r'[^\d+]'), '');
+    
+    // If it already starts with +, return as is
+    if (cleaned.startsWith('+')) {
+      return cleaned;
+    }
+    
+    // Try to detect country code and format accordingly
+    return _formatWithCountryCode(cleaned);
+  }
+
+  /// Attempts to format phone with appropriate country code
+  static String _formatWithCountryCode(String phone) {
+    // Remove leading zero if present
+    String cleaned = phone.startsWith('0') ? phone.substring(1) : phone;
+    
+    // Saudi Arabia
+    if (cleaned.startsWith('5') && cleaned.length == 9) {
+      return '+966$cleaned';
+    }
+    // Yemen
+    else if (cleaned.startsWith('7') && cleaned.length == 9) {
+      return '+967$cleaned';
+    }
+    // Already has country code
+    else if (cleaned.startsWith('966') || cleaned.startsWith('967')) {
+      return '+$cleaned';
+    }
+    // For other formats, add + if not present
+    else if (!cleaned.startsWith('+')) {
+      return '+$cleaned';
+    }
+    
+    return cleaned;
+  }
+
+  /// Gets the country code from a phone number
+  static String? getCountryCodeFromPhone(String phone) {
+    final cleaned = phone.replaceAll(RegExp(r'[^\d+]'), '');
+    
+    // Common country codes mapping
+    final countryCodes = {
+      '966': 'SA', // Saudi Arabia
+      '967': 'YE', // Yemen
+      '20': 'EG',  // Egypt
+      '971': 'AE', // UAE
+      '965': 'KW', // Kuwait
+      '973': 'BH', // Bahrain
+      '974': 'QA', // Qatar
+      '962': 'JO', // Jordan
+      '961': 'LB', // Lebanon
+      '90': 'TR',  // Turkey
+      '98': 'IR',  // Iran
+      '92': 'PK',  // Pakistan
+      '91': 'IN',  // India
+      '880': 'BD', // Bangladesh
+      '62': 'ID',  // Indonesia
+      '60': 'MY',  // Malaysia
+      '1': 'US',   // US/Canada
+      '44': 'GB',  // UK
+    };
+    
+    String phoneWithoutPlus = cleaned.startsWith('+') ? cleaned.substring(1) : cleaned;
+    
+    // Check for each country code
+    for (var entry in countryCodes.entries) {
+      if (phoneWithoutPlus.startsWith(entry.key)) {
+        return entry.key;
+      }
+    }
+    
     return null;
   }
 

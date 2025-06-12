@@ -791,12 +791,103 @@ class _ClientFormScreenState extends BaseFormScreenState<ClientFormScreen> {
               ),
               SizedBox(height: 16),
 
-              CustomTextField(
-                controller: _secondPhoneController,
-                label: 'رقم إضافي (اختياري)',
-                icon: Icons.phone_android,
-                keyboardType: TextInputType.phone,
-                validator: (value) => ValidationUtils.validateSecondPhone(value, _phoneCountry),
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.only(left: 12, right: 12, top: 8),
+                      child: Text(
+                        'رقم إضافي (اختياري) - أي دولة',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    CustomTextField(
+                      controller: _secondPhoneController,
+                      label: 'مثال: +966501234567 أو +967712345678',
+                      icon: Icons.phone_android,
+                      keyboardType: TextInputType.phone,
+                      validator: ValidationUtils.validateSecondPhone,
+                    ),
+                    if (_secondPhoneController.text.isNotEmpty) ...[
+                      Padding(
+                        padding: EdgeInsets.only(left: 12, right: 12, bottom: 8),
+                        child: Container(
+                          padding: EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.info_outline, size: 16, color: Colors.blue.shade700),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'سيتم تنسيق الرقم تلقائياً: ${ValidationUtils.formatInternationalPhone(_secondPhoneController.text)}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.blue.shade700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              SizedBox(height: 8),
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.phone_android, size: 16, color: Colors.green.shade700),
+                        SizedBox(width: 8),
+                        Text(
+                          'أمثلة للأرقام المقبولة:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      '• السعودية: +966501234567 أو 0501234567\n'
+                      '• اليمن: +967712345678 أو 0712345678\n'
+                      '• الإمارات: +971501234567\n'
+                      '• مصر: +201012345678\n'
+                      '• أي دولة أخرى: +[كود الدولة][الرقم]',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.green.shade600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               SizedBox(height: 16),
 

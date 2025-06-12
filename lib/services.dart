@@ -1904,6 +1904,199 @@ class WhatsAppService {
     }
     return localNumber;
   }
+
+  /// Sends WhatsApp message to an international phone number
+  static Future<void> sendInternationalMessage({
+    required String phoneNumber,
+    required String message,
+    String? clientName,
+  }) async {
+    try {
+      _validateInputs(phoneNumber: phoneNumber, message: message);
+
+      // Format the international phone number
+      final formattedPhone = _formatInternationalPhoneNumber(phoneNumber);
+
+      // Format message if client name is provided
+      String formattedMessage = message;
+      if (clientName != null) {
+        formattedMessage = MessageTemplates.formatMessage(message, {
+          'clientName': clientName,
+        });
+      }
+
+      // Launch WhatsApp
+      await _launchWhatsApp(formattedPhone, formattedMessage);
+
+    } catch (e) {
+      throw _createWhatsAppException(e);
+    }
+  }
+
+  /// Makes a call to an international phone number
+  static Future<void> callInternationalNumber({
+    required String phoneNumber,
+  }) async {
+    try {
+      if (phoneNumber.isEmpty) {
+        throw Exception('رقم الهاتف مطلوب');
+      }
+
+      // Format the international phone number
+      final formattedPhone = _formatInternationalPhoneNumber(phoneNumber);
+
+      // Make the call
+      await _makePhoneCall(formattedPhone);
+
+    } catch (e) {
+      throw _createCallException(e);
+    }
+  }
+
+  /// Formats international phone number for WhatsApp/calling
+  static String _formatInternationalPhoneNumber(String phoneNumber) {
+    if (phoneNumber.isEmpty) {
+      throw Exception('رقم الهاتف فارغ');
+    }
+
+    // Remove all non-digit characters except +
+    String cleaned = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
+
+    // If it starts with +, remove it for processing
+    if (cleaned.startsWith('+')) {
+      cleaned = cleaned.substring(1);
+    }
+
+    // Remove leading zeros
+    while (cleaned.startsWith('0') && cleaned.length > 1) {
+      cleaned = cleaned.substring(1);
+    }
+
+    // Validate length (ITU-T E.164 standard: 7-15 digits)
+    if (cleaned.length < 7 || cleaned.length > 15) {
+      throw Exception('رقم الهاتف يجب أن يكون بين 7 و 15 رقم');
+    }
+
+    // Auto-detect and format common patterns
+    cleaned = _autoFormatCommonCountries(cleaned);
+
+    // Validate that it's a number
+    if (!RegExp(r'^\d+$').hasMatch(cleaned)) {
+      throw Exception('رقم الهاتف يجب أن يحتوي على أرقام فقط');
+    }
+
+    return cleaned;
+  }
+
+  /// Auto-formats common country phone numbers
+  static String _autoFormatCommonCountries(String phone) {
+    // Saudi Arabia: if starts with 5 and is 9 digits, add 966
+    if (phone.startsWith('5') && phone.length == 9) {
+      return '966$phone';
+    }
+    // Yemen: if starts with 7 and is 9 digits, add 967
+    else if (phone.startsWith('7') && phone.length == 9) {
+      return '967$phone';
+    }
+    // Egypt: if starts with 1 and is 10 digits, add 20
+    else if (phone.startsWith('1') && phone.length == 10) {
+      return '20$phone';
+    }
+    // UAE: if starts with 5 and is 9 digits, could be UAE, but Saudi is more common
+    // Keep Saudi as default for 5XXXXXXXX pattern
+    
+    return phone;
+  }
+
+  /// Enhanced method to handle both primary and secondary phones
+  static Future<void> sendMessageToClientPhone({
+    required ClientModel client,
+    required String message,
+    bool useSecondaryPhone = false,
+  }) async {
+    try {
+      if (useSecondaryPhone) {
+        if (client.secondPhone == null || client.secondPhone!.isEmpty) {
+          throw Exception('الرقم الثانوي غير متوفر لهذا العميل');
+        }
+        
+        await sendInternationalMessage(
+          phoneNumber: client.secondPhone!,
+          message: message,
+          clientName: client.clientName,
+        );
+      } else {
+        await sendClientMessage(
+          phoneNumber: client.clientPhone,
+          country: client.phoneCountry,
+          message: message,
+          clientName: client.clientName,
+        );
+      }
+    } catch (e) {
+      throw _createWhatsAppException(e);
+    }
+  }
+
+  /// Enhanced method to call either primary or secondary phone
+  static Future<void> callClientPhone({
+    required ClientModel client,
+    bool useSecondaryPhone = false,
+  }) async {
+    try {
+      if (useSecondaryPhone) {
+        if (client.secondPhone == null || client.secondPhone!.isEmpty) {
+          throw Exception('الرقم الثانوي غير متوفر لهذا العميل');
+        }
+        
+        await callInternationalNumber(phoneNumber: client.secondPhone!);
+      } else {
+        await callClient(
+          phoneNumber: client.clientPhone,
+          country: client.phoneCountry,
+        );
+      }
+    } catch (e) {
+      throw _createCallException(e);
+    }
+  }
+
+  /// Validates international phone number format
+  static bool isValidInternationalPhone(String phoneNumber) {
+    try {
+      _formatInternationalPhoneNumber(phoneNumber);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Gets display format for international phone
+  static String getInternationalDisplayPhone(String phoneNumber) {
+    try {
+      final formatted = _formatInternationalPhoneNumber(phoneNumber);
+      return '+$formatted';
+    } catch (e) {
+      return phoneNumber; // Return original if formatting fails
+    }
+  }
+
+  /// Detects country from international phone number
+  static PhoneCountry? detectCountryFromPhone(String phoneNumber) {
+    try {
+      final formatted = _formatInternationalPhoneNumber(phoneNumber);
+      
+      if (formatted.startsWith('966')) {
+        return PhoneCountry.saudi;
+      } else if (formatted.startsWith('967')) {
+        return PhoneCountry.yemen;
+      }
+      
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
 }
 
 /// Phone number validation rules for different countries

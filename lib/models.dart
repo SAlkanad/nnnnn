@@ -490,7 +490,7 @@ class ClientModel {
   final String clientName;
   final String username;
   final String clientPhone;        // Standardized field name
-  final String? secondPhone;       // Standardized field name
+  final String? secondPhone;       // Standardized field name - can be any international number
   final PhoneCountry phoneCountry;
   final VisaType visaType;
   final String? agentName;
@@ -529,9 +529,16 @@ class ClientModel {
   });
 
   String get fullPrimaryPhone => '${phoneCountry.countryCode}$clientPhone';
-  String get fullSecondaryPhone => secondPhone != null
-      ? '${phoneCountry.countryCode}$secondPhone'
-      : '';
+  
+  /// Gets the formatted secondary phone number
+  /// If it already includes country code, returns as-is
+  /// If not, formats it as international number
+  String get fullSecondaryPhone {
+    if (secondPhone == null || secondPhone!.isEmpty) return '';
+    
+    // Use ValidationUtils to format the international phone
+    return ValidationUtils.formatInternationalPhone(secondPhone!);
+  }
 
   String get statusDisplayName => status.displayName;
   String get visaDisplayName => visaType.displayName;
@@ -639,6 +646,32 @@ class ClientModel {
       updatedAt: updatedAt ?? DateTime.now(),
       version: version ?? this.version,           // Maintain current version unless explicitly updated
     );
+  }
+
+  /// Returns both phone numbers formatted for display
+  List<String> get allPhoneNumbers {
+    final phones = <String>[fullPrimaryPhone];
+    if (secondPhone != null && secondPhone!.isNotEmpty) {
+      phones.add(fullSecondaryPhone);
+    }
+    return phones;
+  }
+
+  /// Returns the primary phone number for display
+  String get displayPhoneNumber {
+    return WhatsAppService.getDisplayPhoneNumber(clientPhone, phoneCountry);
+  }
+
+  /// Returns the secondary phone number for display (international format)
+  String? get displaySecondaryPhoneNumber {
+    if (secondPhone == null || secondPhone!.isEmpty) return null;
+    return ValidationUtils.formatInternationalPhone(secondPhone!);
+  }
+
+  /// Gets the country code of the secondary phone
+  String? get secondPhoneCountryCode {
+    if (secondPhone == null || secondPhone!.isEmpty) return null;
+    return ValidationUtils.getCountryCodeFromPhone(secondPhone!);
   }
 }
 
