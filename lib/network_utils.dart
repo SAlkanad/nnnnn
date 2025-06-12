@@ -41,7 +41,7 @@ class NetworkUtils {
 
   static Future<void> _onConnectivityChanged(List<ConnectivityResult> results) async {
     final hasInternet = await checkInternetConnection();
-    
+
     if (!hasInternet && _hasConnection) {
       await _clearApplicationCacheOnDisconnect();
     } else if (hasInternet && !_hasConnection) {
@@ -51,7 +51,7 @@ class NetworkUtils {
 
   static Future<bool> checkInternetConnection() async {
     final now = DateTime.now();
-    if (_lastNetworkCheck != null && 
+    if (_lastNetworkCheck != null &&
         now.difference(_lastNetworkCheck!) < _networkCheckInterval) {
       return _hasConnection;
     }
@@ -90,7 +90,7 @@ class NetworkUtils {
           final result = await InternetAddress.lookup(host).timeout(
             Duration(seconds: 5),
           );
-          
+
           if (result.isNotEmpty && result[0].rawAddress.isNotEmpty) {
             return true;
           }
@@ -98,7 +98,7 @@ class NetworkUtils {
           continue;
         }
       }
-      
+
       return false;
     } catch (e) {
       return false;
@@ -116,16 +116,16 @@ class NetworkUtils {
   static Future<void> _clearNetworkCache() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final networkCacheKeys = prefs.getKeys().where((key) => 
-        key.startsWith('network_') || 
-        key.startsWith('api_cache_') ||
-        key.startsWith('last_sync_')
+      final networkCacheKeys = prefs.getKeys().where((key) =>
+      key.startsWith('network_') ||
+          key.startsWith('api_cache_') ||
+          key.startsWith('last_sync_')
       ).toList();
-      
+
       for (final key in networkCacheKeys) {
         await prefs.remove(key);
       }
-      
+
       CacheManager.clear();
       print('✅ Network cache cleared');
     } catch (e) {
@@ -137,11 +137,11 @@ class NetworkUtils {
     try {
       await ErrorHandler.clearApplicationCache();
       CacheManager.clear();
-      
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('last_disconnect_cache_cleared', true);
       await prefs.setInt('last_disconnect_time', DateTime.now().millisecondsSinceEpoch);
-      
+
       print('✅ Application cache cleared on network disconnect');
     } catch (e) {
       print('❌ Failed to clear cache on disconnect: $e');
@@ -152,19 +152,19 @@ class NetworkUtils {
     try {
       final prefs = await SharedPreferences.getInstance();
       final lastDisconnectTime = prefs.getInt('last_disconnect_time');
-      
+
       if (lastDisconnectTime != null) {
         final disconnectDuration = DateTime.now().millisecondsSinceEpoch - lastDisconnectTime;
-        
+
         if (disconnectDuration > 300000) {
           await ErrorHandler.clearApplicationCache();
           CacheManager.clear();
         }
       }
-      
+
       await prefs.remove('last_disconnect_cache_cleared');
       await prefs.remove('last_disconnect_time');
-      
+
       print('✅ Data sync completed on reconnect');
     } catch (e) {
       print('❌ Failed to sync data on reconnect: $e');
@@ -176,10 +176,10 @@ class NetworkUtils {
       CacheManager.clear();
       await ErrorHandler.clearApplicationCache();
       await _clearNetworkCache();
-      
+
       final prefs = await SharedPreferences.getInstance();
       final allKeys = prefs.getKeys().toList();
-      
+
       for (final key in allKeys) {
         if (key.startsWith('cache_') ||
             key.startsWith('temp_') ||
@@ -189,7 +189,7 @@ class NetworkUtils {
           await prefs.remove(key);
         }
       }
-      
+
       print('✅ All caches forcefully cleared');
     } catch (e) {
       print('❌ Failed to force clear caches: $e');
@@ -207,38 +207,38 @@ class NetworkUtils {
   }
 
   static Future<T> executeWithRetry<T>(
-    Future<T> Function() operation, {
-    int maxRetries = 3,
-    Duration retryDelay = const Duration(seconds: 2),
-    bool clearCacheOnRetry = true,
-  }) async {
+      Future<T> Function() operation, {
+        int maxRetries = 3,
+        Duration retryDelay = const Duration(seconds: 2),
+        bool clearCacheOnRetry = true,
+      }) async {
     int attempts = 0;
-    
+
     while (attempts < maxRetries) {
       try {
         if (attempts > 0 && clearCacheOnRetry) {
           await forceClearAllCaches();
         }
-        
+
         final hasConnection = await checkInternetConnection();
         if (!hasConnection) {
           throw Exception('لا يوجد اتصال بالإنترنت');
         }
-        
+
         return await operation();
-        
+
       } catch (e) {
         attempts++;
-        
+
         if (attempts >= maxRetries) {
           rethrow;
         }
-        
+
         print('⚠️ Operation failed (attempt $attempts/$maxRetries): $e');
         await Future.delayed(retryDelay * attempts);
       }
     }
-    
+
     throw Exception('فشل في تنفيذ العملية بعد $maxRetries محاولات');
   }
 }
@@ -269,7 +269,7 @@ abstract class NetworkAwareState<T extends NetworkAwareWidget> extends State<T> 
       setState(() {
         _isConnected = isConnected;
       });
-      
+
       if (isConnected) {
         onNetworkRestored();
       } else {
@@ -342,10 +342,80 @@ class NetworkWrapper extends StatefulWidget {
   State<NetworkWrapper> createState() => _NetworkWrapperState();
 }
 
-class _NetworkWrapperState extends NetworkAwareState<NetworkWrapper> {
+class _NetworkWrapperState extends State<NetworkWrapper> {
+  late StreamSubscription<bool> _networkSubscription;
+  bool _isConnected = true;
+
   @override
-  Widget buildNetworkAwareBody() {
-    if (!isConnected && widget.showOfflineMessage) {
+  void initState() {
+    super.initState();
+    _isConnected = NetworkUtils.hasConnection;
+    _networkSubscription = NetworkUtils.connectionStream.listen(_onNetworkChanged);
+  }
+
+  @override
+  void dispose() {
+    _networkSubscription.cancel();
+    super.dispose();
+  }
+
+  void _onNetworkChanged(bool isConnected) {
+    if (mounted) {
+      setState(() {
+        _isConnected = isConnected;
+      });
+
+      if (isConnected) {
+        onNetworkRestored();
+      } else {
+        onNetworkDisconnected();
+      }
+    }
+  }
+
+  void onNetworkDisconnected() {
+    if (widget.showOfflineMessage && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.wifi_off, color: Colors.white),
+              SizedBox(width: 8),
+              Text('انقطع الاتصال بالإنترنت'),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
+  void onNetworkRestored() async {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.wifi, color: Colors.white),
+              SizedBox(width: 8),
+              Text('تم استعادة الاتصال بالإنترنت'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      if (widget.onRetry != null) {
+        await widget.onRetry!();
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_isConnected && widget.showOfflineMessage) {
       return _buildOfflineWidget();
     }
     return widget.child;
@@ -387,7 +457,7 @@ class _NetworkWrapperState extends NetworkAwareState<NetworkWrapper> {
                 onPressed: () async {
                   await NetworkUtils.checkInternetConnection();
                   if (widget.onRetry != null) {
-                    widget.onRetry!();
+                    await widget.onRetry!();
                   }
                 },
                 icon: Icon(Icons.refresh),
@@ -402,9 +472,11 @@ class _NetworkWrapperState extends NetworkAwareState<NetworkWrapper> {
               TextButton(
                 onPressed: () async {
                   await NetworkUtils.forceClearAllCaches();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('تم مسح جميع ذاكرة التخزين المؤقت')),
-                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('تم مسح جميع ذاكرة التخزين المؤقت')),
+                    );
+                  }
                 },
                 child: Text('مسح ذاكرة التخزين المؤقت'),
               ),
@@ -413,21 +485,6 @@ class _NetworkWrapperState extends NetworkAwareState<NetworkWrapper> {
         ),
       ),
     );
-  }
-
-  @override
-  void onNetworkDisconnected() {
-    if (widget.showOfflineMessage) {
-      super.onNetworkDisconnected();
-    }
-  }
-
-  @override
-  void onNetworkRestored() async {
-    super.onNetworkRestored();
-    if (widget.onRetry != null) {
-      await widget.onRetry!();
-    }
   }
 }
 
