@@ -45,8 +45,11 @@ dependencies:
   # Security
   crypto: ^3.0.3
 
-  # Biometrics
+  # Biometrics - Updated to latest version for new phone support
   local_auth: ^2.3.0
+  local_auth_android: ^1.0.41   # Latest Android implementation
+  local_auth_darwin: ^1.4.0     # Latest iOS/macOS implementation
+  local_auth_windows: ^1.0.11   # Windows support if needed
 
   # Timezone
   timezone: ^0.10.1
@@ -61,7 +64,7 @@ dependencies:
   # Notifications
   flutter_local_notifications: ^19.2.1
 
-  # Permissions
+  # Permissions - Updated to latest version
   permission_handler: ^12.0.0+1
 
   # File downloads
@@ -75,3 +78,11 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Add any custom fonts if needed
+  # fonts:
+  #   - family: Cairo
+  #     fonts:
+  #       - asset: fonts/Cairo-Regular.ttf
+  #       - asset: fonts/Cairo-Bold.ttf
+  #         weight: 700
