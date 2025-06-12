@@ -28,56 +28,141 @@ import 'package:shared_preferences/shared_preferences.dart';
 class BiometricService {
   static final LocalAuthentication _localAuth = LocalAuthentication();
 
+  /// Check if biometric authentication is available on the device
   static Future<bool> isBiometricAvailable() async {
     try {
       final isAvailable = await _localAuth.canCheckBiometrics;
-      if (!isAvailable) return false;
+      final isDeviceSupported = await _localAuth.isDeviceSupported();
+      
+      if (!isAvailable || !isDeviceSupported) return false;
       
       final availableBiometrics = await _localAuth.getAvailableBiometrics();
       return availableBiometrics.isNotEmpty;
     } catch (e) {
+      print('Error checking biometric availability: $e');
       return false;
     }
   }
 
+  /// Get list of available biometric types
   static Future<List<BiometricType>> getAvailableBiometrics() async {
     try {
       return await _localAuth.getAvailableBiometrics();
     } catch (e) {
+      print('Error getting available biometrics: $e');
       return [];
     }
   }
 
-  static Future<bool> authenticateWithBiometrics() async {
+  /// Check if device supports any form of authentication
+  static Future<bool> isDeviceSupported() async {
     try {
-      final isAvailable = await isBiometricAvailable();
-      if (!isAvailable) return false;
-
-      return await _localAuth.authenticate(
-        localizedReason: 'استخدم بصمتك لتسجيل الدخول',
-        options: AuthenticationOptions(
-          biometricOnly: true,
-          stickyAuth: true,
-        ),
-      );
+      return await _localAuth.isDeviceSupported();
     } catch (e) {
+      print('Error checking device support: $e');
       return false;
     }
   }
 
+  /// Authenticate with biometrics using the latest API
+  static Future<bool> authenticateWithBiometrics({
+    String localizedReason = 'يرجى المصادقة للمتابعة',
+    bool biometricOnly = false,
+    bool stickyAuth = true,
+  }) async {
+    try {
+      final isAvailable = await isBiometricAvailable();
+      if (!isAvailable) {
+        print('Biometric authentication not available');
+        return false;
+      }
+
+      final bool didAuthenticate = await _localAuth.authenticate(
+        localizedReason: localizedReason,
+        authMessages: const <AuthMessages>[
+          AndroidAuthMessages(
+            signInTitle: 'المصادقة البيومترية مطلوبة',
+            cancelButton: 'إلغاء',
+            deviceCredentialsRequiredTitle: 'مطلوب رمز الجهاز',
+            deviceCredentialsSetupDescription: 'يرجى إعداد رمز الجهاز',
+            goToSettingsButton: 'الإعدادات',
+            goToSettingsDescription: 'يرجى إعداد المصادقة البيومترية',
+          ),
+          IOSAuthMessages(
+            cancelButton: 'إلغاء',
+            goToSettingsButton: 'الإعدادات',
+            goToSettingsDescription: 'يرجى إعداد المصادقة البيومترية',
+            lockOut: 'يرجى المحاولة مرة أخرى',
+          ),
+        ],
+        options: AuthenticationOptions(
+          biometricOnly: biometricOnly,
+          stickyAuth: stickyAuth,
+          useErrorDialogs: true,
+        ),
+      );
+
+      return didAuthenticate;
+    } catch (e) {
+      print('Error during biometric authentication: $e');
+      return false;
+    }
+  }
+
+  /// Enable biometric for a specific user
   static Future<void> enableBiometric(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('biometric_enabled_$userId', true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('biometric_enabled_$userId', true);
+      print('Biometric enabled for user: $userId');
+    } catch (e) {
+      print('Error enabling biometric: $e');
+      throw Exception('فشل في تفعيل المصادقة البيومترية');
+    }
   }
 
+  /// Disable biometric for a specific user
   static Future<void> disableBiometric(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('biometric_enabled_$userId', false);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('biometric_enabled_$userId', false);
+      print('Biometric disabled for user: $userId');
+    } catch (e) {
+      print('Error disabling biometric: $e');
+      throw Exception('فشل في إلغاء تفعيل المصادقة البيومترية');
+    }
   }
 
+  /// Check if biometric is enabled for a specific user
   static Future<bool> isBiometricEnabled(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('biometric_enabled_$userId') ?? false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool('biometric_enabled_$userId') ?? false;
+    } catch (e) {
+      print('Error checking biometric status: $e');
+      return false;
+    }
+  }
+
+  /// Get detailed biometric information for debugging
+  static Future<Map<String, dynamic>> getBiometricInfo() async {
+    try {
+      final isAvailable = await _localAuth.canCheckBiometrics;
+      final isDeviceSupported = await _localAuth.isDeviceSupported();
+      final availableBiometrics = await _localAuth.getAvailableBiometrics();
+      
+      return {
+        'canCheckBiometrics': isAvailable,
+        'isDeviceSupported': isDeviceSupported,
+        'availableBiometrics': availableBiometrics.map((e) => e.toString()).toList(),
+        'biometricAvailable': isAvailable && isDeviceSupported && availableBiometrics.isNotEmpty,
+      };
+    } catch (e) {
+      return {
+        'error': e.toString(),
+        'biometricAvailable': false,
+      };
+    }
   }
 }
 
@@ -891,6 +976,7 @@ class ValidationService {
     return errors;
   }
 }
+
 class DatabaseService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -1982,7 +2068,7 @@ class StatusUpdateService {
       print('❌ Auto status update error: $e');
     }
   }
-// Add this method to the StatusUpdateService class in services.dart
+
   static void startPeriodicUpdates() {
     startAutoStatusUpdate();
   }
@@ -1990,6 +2076,7 @@ class StatusUpdateService {
   static void stopPeriodicUpdates() {
     stopAutoStatusUpdate();
   }
+  
   static Future<void> forceUpdateAllStatuses() async {
     print('🔄 Force updating all client statuses...');
     await _updateAllClientStatuses();
