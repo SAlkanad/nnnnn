@@ -11,6 +11,8 @@ import 'core.dart';
 import 'settings_screens.dart';
 
 class LoginScreen extends StatefulWidget {
+  const LoginScreen({Key? key}) : super(key: key);
+
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
@@ -19,367 +21,13 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
+  bool _rememberMe = false;
+  bool _obscurePassword = true;
 
   @override
   void initState() {
     super.initState();
-    _loadSavedCredentials();
-  }
-
-  Future<void> _loadSavedCredentials() async {
-    final authController = Provider.of<AuthController>(context, listen: false);
-    final credentials = await authController.getSavedCredentials();
-
-    if (credentials['username'] != null) {
-      _usernameController.text = credentials['username']!;
-    }
-    if (credentials['password'] != null) {
-      _passwordController.text = credentials['password']!;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('تسجيل الدخول'),
-        centerTitle: true,
-      ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Consumer<AuthController>(
-          builder: (context, authController, child) {
-            if (authController.isLoggedIn) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                final user = authController.currentUser!;
-                switch (user.role) {
-                  case UserRole.admin:
-                    Navigator.pushReplacementNamed(context, '/admin_dashboard');
-                    break;
-                  case UserRole.user:
-                  case UserRole.agency:
-                    Navigator.pushReplacementNamed(context, '/user_dashboard');
-                    break;
-                }
-              });
-            }
-
-            return Form(
-              key: _formKey,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    height: 120,
-                    width: 120,
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade100,
-                      borderRadius: BorderRadius.circular(60),
-                    ),
-                    child: Icon(
-                      Icons.mosque,
-                      size: 60,
-                      color: Colors.blue.shade800,
-                    ),
-                  ),
-                  SizedBox(height: 32),
-
-                  CustomTextField(
-                    controller: _usernameController,
-                    label: 'اسم المستخدم',
-                    icon: Icons.person,
-                    validator: ValidationUtils.validateUsername,
-                    onChanged: (value) => authController.checkBiometricAvailability(),
-                  ),
-                  SizedBox(height: 16),
-
-                  CustomTextField(
-                    controller: _passwordController,
-                    label: 'كلمة المرور',
-                    icon: Icons.lock,
-                    isPassword: true,
-                    validator: ValidationUtils.validatePassword,
-                  ),
-                  SizedBox(height: 16),
-
-                  CheckboxListTile(
-                    title: Text('تذكرني'),
-                    value: authController.rememberMe,
-                    onChanged: (value) {
-                      authController.rememberMe = value ?? false;
-                    },
-                    controlAffinity: ListTileControlAffinity.leading,
-                  ),
-                  SizedBox(height: 24),
-
-                  _buildBiometricStatusWidget(),
-
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: authController.isLoading ? null : _handleLogin,
-                      child: authController.isLoading
-                          ? CircularProgressIndicator(color: Colors.white)
-                          : Text('دخول', style: TextStyle(fontSize: 18)),
-                    ),
-                  ),
-
-                  if (authController.biometricAvailable && _usernameController.text.isNotEmpty) ...[
-                    SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: OutlinedButton.icon(
-                        onPressed: authController.isLoading ? null : _handleBiometricLogin,
-                        icon: Icon(Icons.fingerprint),
-                        label: Text('تسجيل الدخول ببصمة الإصبع'),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(
-                            color: authController.biometricEnabled ? Colors.green : Colors.orange,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Future<void> _handleLogin() async {
-    if (_formKey.currentState!.validate()) {
-      try {
-        final authController = Provider.of<AuthController>(context, listen: false);
-        final success = await authController.login(
-          _usernameController.text,
-          _passwordController.text,
-        );
-
-        if (success) {
-          final user = authController.currentUser!;
-
-          if (user.isFrozen) {
-            _showFreezeDialog(user.freezeReason ?? 'تم تجميد الحساب');
-            return;
-          }
-
-          switch (user.role) {
-            case UserRole.admin:
-              Navigator.pushReplacementNamed(context, '/admin_dashboard');
-              break;
-            case UserRole.user:
-            case UserRole.agency:
-              Navigator.pushReplacementNamed(context, '/user_dashboard');
-              break;
-          }
-        }
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleBiometricLogin() async {
-    try {
-      final authController = Provider.of<AuthController>(context, listen: false);
-      
-      // Enhanced biometric login
-      final success = await authController.loginWithBiometricEnhanced(_usernameController.text);
-
-      if (success) {
-        final user = authController.currentUser!;
-        
-        if (user.isFrozen) {
-          _showFreezeDialog(user.freezeReason ?? 'تم تجميد الحساب');
-          return;
-        }
-
-        // Navigate based on user role
-        switch (user.role) {
-          case UserRole.admin:
-            Navigator.pushReplacementNamed(context, '/admin_dashboard');
-            break;
-          case UserRole.user:
-          case UserRole.agency:
-            Navigator.pushReplacementNamed(context, '/user_dashboard');
-            break;
-        }
-      } else {
-        _showBiometricErrorDialog('فشل في المصادقة ببصمة الإصبع');
-      }
-    } catch (e) {
-      _showBiometricErrorDialog(e.toString());
-    }
-  }
-
-  void _showBiometricErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.fingerprint, color: Colors.red),
-            SizedBox(width: 8),
-            Text('خطأ في المصادقة البيومترية'),
-          ],
-        ),
-        content: Text(message),
-        actions: [
-          if (message.contains('تم تغيير إعدادات البصمة')) ...[
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _showBiometricResetDialog();
-              },
-              child: Text('إعادة التفعيل'),
-            ),
-          ],
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('موافق'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showBiometricResetDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('إعادة تفعيل البصمة'),
-        content: Text(
-          'تم اكتشاف تغيير في إعدادات البصمة. هل تريد إعادة تفعيل المصادقة البيومترية؟'
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('لاحقاً'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _setupBiometricAgain();
-            },
-            child: Text('إعادة التفعيل'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _setupBiometricAgain() async {
-    try {
-      final authController = Provider.of<AuthController>(context, listen: false);
-      
-      // First, login with username/password
-      if (_usernameController.text.isNotEmpty && _passwordController.text.isNotEmpty) {
-        final success = await authController.login(
-          _usernameController.text,
-          _passwordController.text,
-        );
-        
-        if (success) {
-          // Now try to enable biometric
-          await authController.enableBiometricEnhanced();
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.white),
-                  SizedBox(width: 8),
-                  Text('تم إعادة تفعيل المصادقة البيومترية بنجاح'),
-                ],
-              ),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('يرجى إدخال اسم المستخدم وكلمة المرور أولاً'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('فشل في إعادة تفعيل البصمة: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  // Enhanced biometric availability check
-  Future<void> _checkBiometricAvailability() async {
-    final authController = Provider.of<AuthController>(context, listen: false);
-    await authController.checkBiometricAvailabilityEnhanced();
-  }
-
-  // Show biometric status in the UI
-  Widget _buildBiometricStatusWidget() {
-    return Consumer<AuthController>(
-      builder: (context, authController, child) {
-        if (!authController.biometricAvailable) {
-          return SizedBox.shrink();
-        }
-
-        final statusMessage = authController.getBiometricStatusMessage();
-        final statusColor = authController.biometricEnabled ? Colors.green : Colors.orange;
-
-        return Container(
-          margin: EdgeInsets.symmetric(vertical: 8),
-          padding: EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: statusColor.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: statusColor.withOpacity(0.3)),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.fingerprint, color: statusColor, size: 20),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  statusMessage,
-                  style: TextStyle(
-                    color: statusColor,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _showFreezeDialog(String reason) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('حساب مجمد'),
-        content: Text('تم تجميد حسابك: $reason'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('موافق'),
-          ),
-        ],
-      ),
-    );
+    _checkAutoLogin();
   }
 
   @override
@@ -387,6 +35,133 @@ class _LoginScreenState extends State<LoginScreen> {
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkAutoLogin() async {
+    try {
+      final user = await AuthService.checkAutoLogin();
+      if (user != null && mounted) {
+        Navigator.pushReplacementNamed(context, '/home');
+      }
+    } catch (e) {
+      // Auto login failed, continue with normal login
+    }
+  }
+
+  Future<void> _handleLogin() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    try {
+      final user = await AuthService.login(
+        _usernameController.text,
+        _passwordController.text,
+      );
+
+      await AuthService.saveCredentials(
+        _usernameController.text,
+        _passwordController.text,
+        _rememberMe,
+      );
+
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/home');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'تسجيل الدخول',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 32),
+                  TextFormField(
+                    controller: _usernameController,
+                    decoration: const InputDecoration(
+                      labelText: 'اسم المستخدم',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'يرجى إدخال اسم المستخدم';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _passwordController,
+                    decoration: InputDecoration(
+                      labelText: 'كلمة المرور',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _obscurePassword = !_obscurePassword;
+                          });
+                        },
+                      ),
+                    ),
+                    obscureText: _obscurePassword,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'يرجى إدخال كلمة المرور';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  CheckboxListTile(
+                    title: const Text('تذكرني'),
+                    value: _rememberMe,
+                    onChanged: (value) {
+                      setState(() {
+                        _rememberMe = value ?? false;
+                      });
+                    },
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: _handleLogin,
+                    child: const Text('تسجيل الدخول'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

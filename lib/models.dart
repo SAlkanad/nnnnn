@@ -7,49 +7,40 @@ enum UserRole { admin, user, agency }
 class UserModel {
   final String id;
   final String username;
-  final String password;
-  final UserRole role;
-  final String name;
-  final String phone;
   final String email;
+  final String fullName;
+  final String role;
   final bool isActive;
   final bool isFrozen;
-  final String? freezeReason;
-  final DateTime? validationEndDate;
+  final String createdBy;
   final DateTime createdAt;
-  final String? createdBy;
+  final DateTime? lastLogin;
 
   UserModel({
     required this.id,
     required this.username,
-    required this.password,
-    required this.role,
-    required this.name,
-    required this.phone,
     required this.email,
-    this.isActive = true,
-    this.isFrozen = false,
-    this.freezeReason,
-    this.validationEndDate,
+    required this.fullName,
+    required this.role,
+    required this.isActive,
+    required this.isFrozen,
+    required this.createdBy,
     required this.createdAt,
-    this.createdBy,
+    this.lastLogin,
   });
 
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'username': username,
-      'password': password,
-      'role': role.toString().split('.').last,
-      'name': name,
-      'phone': phone,
       'email': email,
+      'fullName': fullName,
+      'role': role,
       'isActive': isActive,
       'isFrozen': isFrozen,
-      'freezeReason': freezeReason,
-      'validationEndDate': validationEndDate?.millisecondsSinceEpoch,
-      'createdAt': createdAt.millisecondsSinceEpoch,
       'createdBy': createdBy,
+      'createdAt': createdAt.toIso8601String(),
+      'lastLogin': lastLogin?.toIso8601String(),
     };
   }
 
@@ -57,22 +48,40 @@ class UserModel {
     return UserModel(
       id: map['id'] ?? '',
       username: map['username'] ?? '',
-      password: map['password'] ?? '',
-      role: UserRole.values.firstWhere(
-        (e) => e.toString().split('.').last == map['role'],
-        orElse: () => UserRole.user,
-      ),
-      name: map['name'] ?? '',
-      phone: map['phone'] ?? '',
       email: map['email'] ?? '',
-      isActive: map['isActive'] ?? true,
+      fullName: map['fullName'] ?? '',
+      role: map['role'] ?? '',
+      isActive: map['isActive'] ?? false,
       isFrozen: map['isFrozen'] ?? false,
-      freezeReason: map['freezeReason'],
-      validationEndDate: map['validationEndDate'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['validationEndDate'])
-          : null,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt']),
-      createdBy: map['createdBy'],
+      createdBy: map['createdBy'] ?? '',
+      createdAt: DateTime.parse(map['createdAt'] ?? DateTime.now().toIso8601String()),
+      lastLogin: map['lastLogin'] != null ? DateTime.parse(map['lastLogin']) : null,
+    );
+  }
+
+  UserModel copyWith({
+    String? id,
+    String? username,
+    String? email,
+    String? fullName,
+    String? role,
+    bool? isActive,
+    bool? isFrozen,
+    String? createdBy,
+    DateTime? createdAt,
+    DateTime? lastLogin,
+  }) {
+    return UserModel(
+      id: id ?? this.id,
+      username: username ?? this.username,
+      email: email ?? this.email,
+      fullName: fullName ?? this.fullName,
+      role: role ?? this.role,
+      isActive: isActive ?? this.isActive,
+      isFrozen: isFrozen ?? this.isFrozen,
+      createdBy: createdBy ?? this.createdBy,
+      createdAt: createdAt ?? this.createdAt,
+      lastLogin: lastLogin ?? this.lastLogin,
     );
   }
 }

@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'package:local_auth/local_auth.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:crypto/crypto.dart';
 import 'package:cross_file/cross_file.dart';
@@ -20,9 +19,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
-import 'package:local_auth/local_auth.dart';
-import 'package:local_auth_android/local_auth_android.dart';
-import 'package:local_auth_darwin/local_auth_darwin.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class BiometricService {
@@ -306,7 +302,7 @@ extension BiometricAuthStateExtension on BiometricAuthState {
 class AuthService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  static Future<UserModel> login(String username, String password, {bool useBiometric = false}) async {
+  static Future<UserModel> login(String username, String password) async {
     try {
       final hashedPassword = _hashPassword(password);
 
@@ -342,20 +338,6 @@ class AuthService {
       return user;
     } catch (e) {
       throw Exception(e.toString());
-    }
-  }
-
-  static Future<UserModel?> loginWithBiometric(String username) async {
-    try {
-      if (await BiometricService.authenticateWithBiometricsEnhanced()) {
-        final credentials = await getSavedCredentials();
-        if (credentials['username'] == username && credentials['password'] != null) {
-          return await login(username, credentials['password']!, useBiometric: true);
-        }
-      }
-      return null;
-    } catch (e) {
-      return null;
     }
   }
 
